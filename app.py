@@ -247,6 +247,10 @@ def create_app(config_name=None):
     if DEVELOPMENT_MODE:
         check_environment()
         is_production = False
+        # Force remove any PostgreSQL connection for local development
+        if 'DATABASE_URL' in os.environ:
+            print("Removing DATABASE_URL for local development")
+            del os.environ['DATABASE_URL']
     else:
         if config_name == 'production': 
             is_production = True
@@ -270,13 +274,18 @@ def create_app(config_name=None):
         'MAX_CONTENT_LENGTH': 10 * 1024 * 1024,
     })
     
-    if DEVELOPMENT_MODE and not os.environ.get('DATABASE_URL'):
+    # Database configuration - FORCE SQLite for local development
+    if DEVELOPMENT_MODE:
+        print(f"Local development mode: Using SQLite database")
         app.config['SQLALCHEMY_DATABASE_URI'] = LOCAL_DATABASE_URL
     else:
+        # Production: use DATABASE_URL if available
         db_url = os.environ.get('DATABASE_URL')
         if db_url and db_url.startswith('postgres://'):
             db_url = db_url.replace('postgres://', 'postgresql://')
         app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///skillstown.db'
+    
+    print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
     # Initialize extensions
     db.init_app(app)

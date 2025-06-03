@@ -1,7 +1,3 @@
-# projects/skillstown/local_config.py
-"""
-Local development configuration for SkillsTown
-"""
 import os
 
 # Local development settings
@@ -12,8 +8,13 @@ DEBUG = True
 NARRETEX_API_URL = "http://localhost:8100"
 CHISEL_API_URL = "http://localhost:8080"
 
-# Database URL for local development
+# Database URL for local development - FORCE SQLite
 LOCAL_DATABASE_URL = "sqlite:///skillstown_local.db"
+
+# Clear any PostgreSQL DATABASE_URL to force SQLite usage
+if 'DATABASE_URL' in os.environ:
+    print("Warning: Found DATABASE_URL environment variable. Unsetting it for local development.")
+    del os.environ['DATABASE_URL']
 
 # File upload settings
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
@@ -40,4 +41,5 @@ def check_environment():
         print(f"Warning: Missing environment variables: {', '.join(missing)}")
         print("Some features may not work correctly.")
     
+    print(f"Database: Using SQLite ({LOCAL_DATABASE_URL})")
     return len(missing) == 0

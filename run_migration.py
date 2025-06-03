@@ -109,6 +109,77 @@ def run_migration():
             
         return True
 
+def column_exists(db, table_name, column_name):
+    """Check if a column exists in a table (works for both SQLite and PostgreSQL)"""
+    try:
+        # Try SQLite approach first
+        result = db.session.execute(text(f"PRAGMA table_info({table_name})"))
+        columns = [row[1] for row in result.fetchall()]
+        return column_name in columns
+    except:
+        try:
+            # PostgreSQL approach
+            result = db.session.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = :table_name 
+                AND column_name = :column_name
+            """), {"table_name": table_name, "column_name": column_name})
+            return result.fetchone() is not None
+        except:
+            return False
+
+def add_column_if_missing(db, table_name, column_name, column_type="TEXT"):
+    """Add a column to a table if it doesn't exist"""
+    if not column_exists(db, table_name, column_name):
+        print(f"Adding {column_name} column to {table_name}...")
+        try:
+            db.session.execute(text(f"""
+                ALTER TABLE {table_name} 
+                ADD COLUMN {column_name} {column_type}
+            """))
+            db.session.commit()
+            print(f"✓ Successfully added {column_name} column")
+            return True
+        except Exception as e:
+            print(f"Error adding {column_name} column: {e}")
+            db.session.rollback()
+            return False
+    else:
+        print(f"✓ {column_name} column already exists in {table_name}")
+        return True
+
+# Usage in your migration script:
+def run_migration():
+    """Run the database migration within Flask app context"""
+    from app import create_app
+    
+    app = create_app()
+    
+    with app.app_context():
+        from app import db
+        
+        print("Running SkillsTown database migration...")
+        
+        try:
+            # Create all tables first
+            db.create_all()
+            print("✓ Created/verified all tables")
+            
+            # Add missing columns
+            add_column_if_missing(db, "skillstown_user_profiles", "job_description")
+            add_column_if_missing(db, "skillstown_course_details", "quiz_results")
+            
+            print("\n🎉 Migration completed successfully!")
+            print("Your SkillsTown application should now work properly.")
+            
+        except Exception as e:
+            print(f"❌ Migration failed: {e}")
+            db.session.rollback()
+            return False
+            
+        return True       
+
 if __name__ == '__main__':
     success = run_migration()
     if not success:
