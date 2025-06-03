@@ -132,12 +132,16 @@ class CourseDetail(db.Model):
     __tablename__ = 'skillstown_course_details'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_course_id = db.Column(db.Integer, nullable=False)  # References UserCourse.id
+    user_course_id = db.Column(db.Integer, db.ForeignKey('skillstown_user_courses.id'), nullable=False)  # References UserCourse.id
     description = db.Column(db.Text)
     progress_percentage = db.Column(db.Integer, default=0)
     completed_at = db.Column(db.DateTime)
     materials = db.Column(db.Text)  # JSON format for course materials
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    # New field for quiz results
+    quiz_results = db.Column(db.Text)  # JSON string containing quiz performance and recommendations
+    # Relationship to UserCourse
+    user_course = db.relationship('UserCourse', backref='details')
     
     def __repr__(self):
         return f'<CourseDetail {self.user_course_id}>'
@@ -159,3 +163,24 @@ class SkillsTownCourse(db.Model):
     
     def __repr__(self):
         return f'<SkillsTownCourse {self.name}>'
+
+# New model for quiz attempts
+class CourseQuizAttempt(db.Model):
+    __tablename__ = 'skillstown_quiz_attempts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('students.id'), nullable=False)
+    course_id = db.Column(db.Integer, db.ForeignKey('skillstown_user_courses.id'), nullable=False)
+    quiz_api_id = db.Column(db.String(100))  # ID from the quiz API
+    score = db.Column(db.Integer)
+    weak_areas = db.Column(db.Text)  # JSON array
+    strong_areas = db.Column(db.Text)  # JSON array
+    recommendations_generated = db.Column(db.Text)  # JSON object
+    completed_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    # Relationships
+    user = db.relationship('Student', backref='quiz_attempts')
+    course = db.relationship('UserCourse', backref='quiz_attempts')
+    
+    def __repr__(self):
+        return f'<CourseQuizAttempt {self.id}>'

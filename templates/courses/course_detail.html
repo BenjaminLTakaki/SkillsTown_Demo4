@@ -342,7 +342,380 @@
                 .btn-group .btn { margin-bottom: 5px; }
             }
             </style>
+            <!-- AI Quiz Generator Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-brain me-2"></i>AI Knowledge Assessment
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h6 class="fw-bold">Test Your Understanding</h6>
+                            <p class="text-muted">Generate a personalized quiz based on this course content to test your knowledge and get tailored recommendations.</p>
+                            <ul class="small text-muted mb-3">
+                                <li>AI-generated questions based on course materials</li>
+                                <li>Instant feedback and explanations</li>
+                                <li>Personalized course recommendations based on performance</li>
+                                <li>Track your learning progress and identify weak areas</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="quiz-status" id="quizStatus">
+                                <button id="generateQuizBtn" class="btn btn-info btn-lg w-100" onclick="generateQuiz('{{ course.id }}')">
+                                    <i class="fas fa-question-circle me-2"></i>Generate Quiz
+                                </button>
+                            </div>
+                            
+                            <!-- Quiz History Button -->
+                            {% if quiz_attempts %}
+                            <div class="mt-3">
+                                <button class="btn btn-outline-info btn-sm" onclick="toggleQuizHistory()">
+                                    <i class="fas fa-history me-2"></i>Quiz History ({{ quiz_attempts|length }})
+                                </button>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- Progress indicator -->
+                    <div id="quizProgress" class="mt-3" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 100%">
+                                Generating quiz questions... This may take a moment
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quiz message area -->
+                    <div id="quizMessage" class="mt-3"></div>
+                    
+                    <!-- Quiz History Section -->
+                    {% if quiz_attempts %}
+                    <div id="quizHistory" class="mt-4" style="display: none;">
+                        <hr>
+                        <h6 class="fw-bold mb-3">Previous Quiz Attempts</h6>
+                        <div class="quiz-attempts-list">
+                            {% for attempt in quiz_attempts %}
+                            <div class="quiz-attempt-item d-flex justify-content-between align-items-center p-3 mb-2 bg-light rounded">
+                                <div>
+                                    <strong>Quiz #{{ loop.index }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </div>
+                                <div class="text-end">
+                                    <div class="score-badge">
+                                        <span class="h5 mb-0 {% if attempt.score >= 80 %}text-success{% elif attempt.score >= 60 %}text-warning{% else %}text-danger{% endif %}">
+                                            {{ attempt.score }}%
+                                        </span>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-primary mt-1" onclick="viewQuizDetails('{{ attempt.id }}')">
+                                        View Details
+                                    </button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
 
+            <!-- Quiz Results and Recommendations Section -->
+            {% if latest_recommendations %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-line me-2"></i>Your Performance & Recommendations
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Performance Summary -->
+                    {% if quiz_attempts %}
+                    {% set latest_attempt = quiz_attempts[0] %}
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="performance-card text-center">
+                                <h6 class="fw-bold">Latest Quiz Score</h6>
+                                <div class="score-display">
+                                    <span class="score-number {% if latest_attempt.score >= 80 %}text-success{% elif latest_attempt.score >= 60 %}text-warning{% else %}text-danger{% endif %}">
+                                        {{ latest_attempt.score }}%
+                                    </span>
+                                </div>
+                                <span class="badge {% if latest_attempt.score >= 80 %}bg-success{% elif latest_attempt.score >= 60 %}bg-warning{% else %}bg-danger{% endif %} mt-2">
+                                    {% if latest_attempt.score >= 80 %}Excellent{% elif latest_attempt.score >= 60 %}Good{% else %}Keep Learning{% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="advice-card">
+                                <h6 class="fw-bold">Personalized Advice</h6>
+                                <p class="small">{{ latest_recommendations.get('specific_advice', 'Keep up the great work!') }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Course Recommendations -->
+                    <div class="recommendations-section">
+                        <h6 class="fw-bold mb-3">
+                            <i class="fas fa-lightbulb me-2"></i>Recommended Learning Path
+                        </h6>
+                        
+                        <!-- Remedial Courses -->
+                        {% if latest_recommendations.get('remedial_courses') %}
+                        <div class="recommendation-category mb-4">
+                            <h6 class="text-warning">
+                                <i class="fas fa-redo me-2"></i>Strengthen Your Foundation
+                            </h6>
+                            <div class="row">
+                                {% for rec_course in latest_recommendations.remedial_courses %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="recommendation-card border-warning">
+                                        <div class="card-body">
+                                            <h6 class="card-title">{{ rec_course.name }}</h6>
+                                            <p class="card-text small text-muted">{{ rec_course.reason }}</p>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="badge bg-warning text-dark">{{ rec_course.category }}</span>
+                                                <button class="btn btn-sm btn-outline-warning enroll-recommendation-btn" 
+                                                        data-category="{{ rec_course.category }}" 
+                                                        data-course="{{ rec_course.name }}">
+                                                    Enroll
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Next Step Courses -->
+                        {% if latest_recommendations.get('next_courses') %}
+                        <div class="recommendation-category mb-4">
+                            <h6 class="text-primary">
+                                <i class="fas fa-arrow-right me-2"></i>Next Steps
+                            </h6>
+                            <div class="row">
+                                {% for rec_course in latest_recommendations.next_courses %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="recommendation-card border-primary">
+                                        <div class="card-body">
+                                            <h6 class="card-title">{{ rec_course.name }}</h6>
+                                            <p class="card-text small text-muted">{{ rec_course.reason }}</p>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="badge bg-primary">{{ rec_course.category }}</span>
+                                                <button class="btn btn-sm btn-outline-primary enroll-recommendation-btn" 
+                                                        data-category="{{ rec_course.category }}" 
+                                                        data-course="{{ rec_course.name }}">
+                                                    Enroll
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Advanced Courses -->
+                        {% if latest_recommendations.get('advanced_courses') %}
+                        <div class="recommendation-category mb-4">
+                            <h6 class="text-success">
+                                <i class="fas fa-rocket me-2"></i>Advanced Challenges
+                            </h6>
+                            <div class="row">
+                                {% for rec_course in latest_recommendations.advanced_courses %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="recommendation-card border-success">
+                                        <div class="card-body">
+                                            <h6 class="card-title">{{ rec_course.name }}</h6>
+                                            <p class="card-text small text-muted">{{ rec_course.reason }}</p>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <span class="badge bg-success">{{ rec_course.category }}</span>
+                                                <button class="btn btn-sm btn-outline-success enroll-recommendation-btn" 
+                                                        data-category="{{ rec_course.category }}" 
+                                                        data-course="{{ rec_course.name }}">
+                                                    Enroll
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Retake Quiz Button -->
+                    <div class="text-center mt-4">
+                        <button class="btn btn-outline-info" onclick="generateQuiz('{{ course.id }}')">
+                            <i class="fas fa-redo me-2"></i>Retake Quiz
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <style>
+            .performance-card, .advice-card {
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #17a2b8;
+                height: 100%;
+            }
+
+            .score-number {
+                font-size: 2.5rem;
+                font-weight: bold;
+            }
+
+            .recommendation-card {
+                transition: all 0.3s ease;
+            }
+
+            .recommendation-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }
+
+            .quiz-attempt-item {
+                transition: all 0.2s ease;
+            }
+
+            .quiz-attempt-item:hover {
+                background-color: #e9ecef !important;
+                transform: translateY(-1px);
+            }
+
+            .recommendations-section {
+                background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #28a745;
+            }
+
+            @media (max-width: 768px) {
+                .recommendation-card {
+                    margin-bottom: 15px;
+                }
+            }
+            </style>
+
+            <script>
+            // Quiz generation functionality
+            async function generateQuiz(courseId) {
+                const btn = document.getElementById('generateQuizBtn');
+                const progress = document.getElementById('quizProgress');
+                const message = document.getElementById('quizMessage');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generating...';
+                progress.style.display = 'block';
+                message.innerHTML = '';
+                
+                try {
+                    const response = await fetch(`/course/${courseId}/generate-quiz`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.quiz_url) {
+                            message.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Quiz generated successfully! Redirecting...</div>`;
+                            setTimeout(() => {
+                                window.open(data.quiz_url, '_blank');
+                            }, 1000);
+                        } else {
+                            message.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Quiz generated successfully!</div>`;
+                        }
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to generate quiz');
+                    }
+                } catch (error) {
+                    console.error('Quiz generation error:', error);
+                    message.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>Failed to generate quiz: ${error.message}</div>`;
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-question-circle me-2"></i>Generate Quiz';
+                    progress.style.display = 'none';
+                }
+            }
+
+            // Toggle quiz history visibility
+            function toggleQuizHistory() {
+                const historySection = document.getElementById('quizHistory');
+                if (historySection) {
+                    historySection.style.display = historySection.style.display === 'none' ? 'block' : 'none';
+                }
+            }
+
+            // View quiz details
+            function viewQuizDetails(attemptId) {
+                // This could open a modal or redirect to a detailed view
+                fetch(`/api/quiz-attempt/${attemptId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        // Show quiz details in a modal or new page
+                        console.log('Quiz details:', data);
+                        alert(`Quiz Score: ${data.score}%\nStrengths: ${data.feedback_strengths}\nAreas for improvement: ${data.feedback_areasForImprovement}`);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching quiz details:', error);
+                    });
+            }
+
+            // Enrollment functionality for recommended courses
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('.enroll-recommendation-btn').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const category = this.dataset.category;
+                        const course = this.dataset.course;
+                        
+                        fetch('/enroll', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: `category=${encodeURIComponent(category)}&course=${encodeURIComponent(course)}`
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                this.innerHTML = '<i class="fas fa-check me-1"></i>Enrolled';
+                                this.classList.remove('btn-outline-primary', 'btn-outline-warning', 'btn-outline-success');
+                                this.classList.add('btn-secondary');
+                                this.disabled = true;
+                                
+                                // Show success message
+                                const alertDiv = document.createElement('div');
+                                alertDiv.className = 'alert alert-success alert-dismissible fade show mt-2';
+                                alertDiv.innerHTML = `
+                                    <i class="fas fa-check-circle me-2"></i>${data.message}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                `;
+                                this.closest('.recommendation-card').appendChild(alertDiv);
+                            } else {
+                                alert(data.message);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Enrollment error:', error);
+                            alert('Error enrolling in course');
+                        });
+                    });
+                });
+            });
+            </script>
             <!-- Course Materials -->
             <div class="card shadow-sm mb-4">
                 <div class="card-header bg-info text-white">
