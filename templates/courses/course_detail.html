@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+
+{% block title %}{{ course.course_name }} - Course Details{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <!-- Course Header -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-primary text-white">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h4 class="mb-0">
+                                <i class="fas fa-book me-2"></i>{{ course.course_name }}
+                            </h4>
+                            <small class="opacity-75">
+                                <i class="fas fa-tag me-1"></i>{{ course.category }}
+                            </small>
+                        </div>
+                        <div class="col-md-4 text-md-end">
+                            <span class="badge {% if course.status == 'completed' %}bg-success{% elif course.status == 'in_progress' %}bg-warning{% else %}bg-info{% endif %} fs-6">
+                                <i class="fas {% if course.status == 'completed' %}fa-check-circle{% elif course.status == 'in_progress' %}fa-play-circle{% else %}fa-clock{% endif %} me-1"></i>
+                                {{ course.status|title }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if course_details.description %}
+                    <p class="card-text">{{ course_details.description }}</p>
+                    {% endif %}
+                    
+                    <!-- Progress Bar -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Course Progress</label>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" role="progressbar"
+                                 style="--width: {{ course_details.progress_percentage or 0 }}%;"
+                                 aria-valuenow="{{ course_details.progress_percentage or 0 }}"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                        <small class="text-muted">{{ course_details.progress_percentage or 0 }}% Complete</small>
+                    </div>
+                    
+                    <!-- Course Info -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-calendar me-2"></i>Enrollment Info</h6>
+                            <ul class="list-unstyled small">
+                                <li><strong>Enrolled:</strong> {{ course.created_at.strftime('%B %d, %Y') }}</li>
+                                {% if course_details.completed_at %}
+                                <li><strong>Completed:</strong> {{ course_details.completed_at.strftime('%B %d, %Y') }}</li>
+                                {% endif %}
+                                <li><strong>Status:</strong> {{ course.status|title }}</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-info-circle me-2"></i>Course Details</h6>
+                            <ul class="list-unstyled small">
+                                <li><strong>Category:</strong> {{ course.category }}</li>
+                                <li><strong>Materials:</strong> {{ materials.materials|length }} sections</li>
+                                <li><strong>Course ID:</strong> #{{ course.id }}</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Local Podcast Generation Section -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="fas fa-podcast me-2"></i>AI Podcast Generator (Local)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h6 class="fw-bold">Generate Course Podcast</h6>
+                            <p class="text-muted">Create an AI-generated podcast specifically for this course using advanced text-to-speech technology.</p>
+                            <ul class="small text-muted mb-3">
+                                <li>Personalized content based on course materials</li>
+                                <li>Professional podcast format with host and guest dialogue</li>
+                                <li>Download as audio file for offline listening</li>
+                                <li>Generated using local AI services</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="podcast-status" id="podcastStatus">
+                                <button id="generatePodcastBtn" class="btn btn-warning btn-lg w-100" onclick="generatePodcast('{{ course.id }}')">
+                                    <i class="fas fa-magic me-2"></i>Generate Podcast
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Progress indicator -->
+                    <div id="podcastProgress" class="mt-3" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%">
+                                Generating podcast... This may take a few minutes
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Error/Success messages -->
+                    <div id="podcastMessage" class="mt-3"></div>
+                    <!-- Audio player (shown after generation) -->
+                    <div id="audioPlayer" class="mt-3" style="display: none;">
+                        <div class="audio-container">
+                            <audio controls class="w-100" preload="none">
+                                <source id="audioSource" src="" type="audio/wav">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <small class="text-muted d-block mt-1">
+                                <i class="fas fa-info-circle me-1"></i>
+                                If the audio doesn’t play, try using the download button below.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Learning Tools -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-play me-2"></i>Interactive Learning Tools
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- External Podcast Card -->
+                        <div class="col-md-4 mb-3">
+                            <div class="action-card podcast-card">
+                                <div class="action-icon mb-3">
+                                    <i class="fas fa-podcast fa-3x text-primary"></i>
+                                </div>
+                                <h5 class="fw-bold">External Podcast</h5>
+                                <p class="text-muted">Access the external podcast generator on SkillsTown.com</p>
+                                <a href="https://skillstown.com/?course_id={{ course.id }}&course_name={{ course.course_name|urlencode }}&action=podcast"
+                                   target="_blank"
+                                   class="btn btn-primary w-100">
+                                    <i class="fas fa-external-link-alt me-2"></i>External Generator
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <!-- Quiz Card -->
+                        <div class="col-md-4 mb-3">
+                            <div class="action-card quiz-card">
+                                <div class="action-icon mb-3">
+                                    <i class="fas fa-question-circle fa-3x text-warning"></i>
+                                </div>
+                                <h5 class="fw-bold">Test Your Knowledge</h5>
+                                <p class="text-muted">Take an AI-generated quiz to test your understanding.</p>
+                                <a href="https://skillstown.com/?course_id={{ course.id }}&course_name={{ course.course_name|urlencode }}&action=quiz"
+                                   target="_blank"
+                                   class="btn btn-warning w-100">
+                                    <i class="fas fa-external-link-alt me-2"></i>Take Quiz
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <!-- Local Test Card -->
+                        <div class="col-md-4 mb-3">
+                            <div class="action-card test-card">
+                                <div class="action-icon mb-3">
+                                    <i class="fas fa-flask fa-3x text-success"></i>
+                                </div>
+                                <h5 class="fw-bold">Test Local Setup</h5>
+                                <p class="text-muted">Test the local podcast generation system with a sample course.</p>
+                                <a href="{{ get_url_for('test_podcast') }}"
+                                   class="btn btn-success w-100"
+                                   target="_blank">
+                                    <i class="fas fa-download me-2"></i>Test Generator
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            // Podcast generation logic
+            async function generatePodcast(courseId) {
+                const btn = document.getElementById('generatePodcastBtn');
+                const progress = document.getElementById('podcastProgress');
+                const message = document.getElementById('podcastMessage');
+                const audioPlayer = document.getElementById('audioPlayer');
+                const audioSource = document.getElementById('audioSource');
+                
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generating...';
+                progress.style.display = 'block';
+                message.innerHTML = '';
+                audioPlayer.style.display = 'none';
+                
+                try {
+                    const response = await fetch(`/course/${courseId}/generate-podcast`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const audioBlob = await response.blob();
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        
+                        message.innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle me-2"></i>Podcast generated successfully! You can now listen or download it.</div>`;
+                        audioSource.src = audioUrl;
+                        audioPlayer.style.display = 'block';
+                        
+                        const audioElement = audioPlayer.querySelector('audio');
+                        audioElement.addEventListener('loadeddata', () => console.log('Audio loaded successfully'));
+                        audioElement.addEventListener('error', (e) => {
+                            console.error('Audio loading error:', e);
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'alert alert-warning mt-2';
+                            errorMsg.innerHTML = `<i class="fas fa-exclamation-triangle me-2"></i><strong>Audio Player Issue:</strong> The audio player had trouble loading the file. You can still download the podcast.`;
+                            message.appendChild(errorMsg);
+                        });
+                        audioElement.addEventListener('canplay', () => console.log('Audio is ready to play'));
+                        audioElement.load();
+
+                        const downloadBtn = document.createElement('button');
+                        downloadBtn.className = 'btn btn-outline-primary btn-sm mt-2 me-2';
+                        downloadBtn.innerHTML = '<i class="fas fa-download me-1"></i>Download Podcast';
+                        downloadBtn.onclick = () => downloadPodcast(courseId);
+                        message.appendChild(downloadBtn);
+                    } else {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('Podcast generation error:', error);
+                    message.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>Failed to generate podcast. Please check that the local services are running and try again.<br><small>Error: ${error.message}</small></div>`;
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-magic me-2"></i>Generate Podcast';
+                    progress.style.display = 'none';
+                }
+            }
+
+            async function downloadPodcast(courseId) {
+                try {
+                    const response = await fetch(`/course/${courseId}/download-podcast`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    if (response.ok) {
+                        const audioBlob = await response.blob();
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = audioUrl;
+                        downloadLink.download = `${course.course_name|replace(' ', '_')}_podcast.wav`;
+                        document.body.appendChild(downloadLink);
+                        downloadLink.click();
+                        document.body.removeChild(downloadLink);
+                        setTimeout(() => URL.revokeObjectURL(audioUrl), 100);
+                    } else {
+                        alert('Failed to download podcast. Please try again.');
+                    }
+                } catch (error) {
+                    console.error('Download error:', error);
+                    alert('Error downloading podcast. Please try again.');
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', async () => {
+                try {
+                    const response = await fetch('/test-podcast', { method: 'HEAD' });
+                    if (!response.ok) {
+                        document.getElementById('podcastMessage').innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i><strong>Local services may not be running.</strong> Make sure Chisel (port 8080) and NarreteX (port 8100) are started.</div>`;
+                    }
+                } catch {}
+
+                // Smooth scrolling for materials
+                document.querySelectorAll('.material-item').forEach((item, i) => {
+                    item.style.opacity = '0';
+                    item.style.transform = 'translateY(20px)';
+                    setTimeout(() => {
+                        item.style.transition = 'all 0.5s ease';
+                        item.style.opacity = '1';
+                        item.style.transform = 'translateY(0)';
+                    }, 100 * i);
+                });
+
+                // Track external clicks
+                document.querySelectorAll('a[target="_blank"]').forEach(link => {
+                    link.addEventListener('click', function() {
+                        const action = this.href.includes('action=podcast') ? 'podcast' : 'quiz';
+                        console.log(`User clicked ${action} for course: ${course.course_name}`);
+                    });
+                });
+            });
+            </script>
+
+            <style>
+            .action-card {
+                background: white;
+                border: 2px solid #e9ecef;
+                border-radius: 12px;
+                padding: 25px;
+                text-align: center;
+                transition: all 0.3s ease;
+                height: 100%;
+            }
+
+            .action-card:hover {
+                border-color: #007bff;
+                transform: translateY(-3px);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            }
+
+            .podcast-card:hover { border-color: #007bff; }
+            .quiz-card:hover { border-color: #ffc107; }
+            .test-card:hover { border-color: #28a745; }
+
+            .action-icon {
+                width: 80px;
+                height: 80px;
+                background: #f8f9fa;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto;
+            }
+
+            .material-item { border-left: 4px solid #007bff; padding-left: 15px; }
+            .content-preview { border-left: 3px solid #28a745; }
+            .topics .badge { background-color: #f8f9fa !important; color: #495057 !important; border: 1px solid #dee2e6; }
+
+            @media (max-width: 768px) {
+                .action-card { margin-bottom: 20px; }
+                .btn-group { flex-direction: column; width: 100%; }
+                .btn-group .btn { margin-bottom: 5px; }
+            }
+            </style>
+
+            <!-- Course Materials -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"> <i class="fas fa-book-open me-2"></i>Course Materials </h5>
+                </div>
+                <div class="card-body">
+                    {% if materials.materials %}
+                    <div class="course-materials">
+                        {% for material in materials.materials %}
+                        <div class="material-item mb-4">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="fw-bold">
+                                    <span class="badge bg-secondary me-2">{{ loop.index }}</span>{{ material.title }}<span class="badge bg-success ms-1">{{ material.type|title }}</span>
+                                </h6>
+                                {% if material.duration %}<small class="text-muted"><i class="fas fa-clock me-1"></i>{{ material.duration }}</small>{% endif %}
+                            </div>
+                            <div class="content-preview p-3 bg-light rounded">
+                                {% if material.topics %}
+                                <div class="topics"><strong>Topics covered:</strong>
+                                    <ul class="list-inline mt-1">
+                                        {% for topic in material.topics %}
+                                        <li class="list-inline-item"><span class="badge bg-outline-secondary">{{ topic }}</span></li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
+                                {% if material.description %}<p class="mb-0 small">{{ material.description }}</p>{% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-file-alt fa-3x text-muted mb-3"></i>
+                        <h6>No Course Materials</h6>
+                        <p class="text-muted">Course materials are being prepared. Check back soon!</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Course Actions -->
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div><h6>Course Actions</h6><small class="text-muted">Update your progress or manage this course</small></div>
+                        <div class="btn-group">
+                            {% if course.status == 'enrolled' %}
+                            <form method="POST" action="{{ get_url_for('update_course_status', course_id=course.id) }}" class="d-inline">
+                                <input type="hidden" name="status" value="in_progress">
+                                <button type="submit" class="btn btn-warning"><i class="fas fa-play me-1"></i>Start Course</button>
+                            </form>
+                            {% elif course.status == 'in_progress' %}
+                            <form method="POST" action="{{ get_url_for('update_course_status', course_id=course.id) }}" class="d-inline">
+                                <input type="hidden" name="status" value="completed">
+                                <button type="submit" class="btn btn-success"><i class="fas fa-check me-1"></i>Mark Complete</button>
+                            </form>
+                            {% elif course.status == 'completed' %}
+                            <span class="badge bg-success fs-6 px-3 py-2"><i class="fas fa-trophy me-1"></i>Course Completed!</span>
+                            {% endif %}
+                            <a href="{{ get_url_for('my_courses') }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i>Back to My Courses</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
