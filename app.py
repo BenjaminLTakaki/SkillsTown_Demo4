@@ -15,7 +15,7 @@ from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from local_config import NARRETEX_API_URL, check_environment, LOCAL_DATABASE_URL, DEVELOPMENT_MODE
-from urllib.parse import urlencode
+
 
 def generate_podcast_for_course(course_name, course_description):
     """
@@ -134,7 +134,6 @@ is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') =
 # Gemini API configuration
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent"
-QUIZ_API_BASE_URL = os.environ.get('QUIZ_API_URL', 'http://localhost:8081')
 
 def get_url_for(*args, **kwargs):
     url = url_for(*args, **kwargs)
@@ -247,10 +246,6 @@ def create_app(config_name=None):
     if DEVELOPMENT_MODE:
         check_environment()
         is_production = False
-        # Force remove any PostgreSQL connection for local development
-        if 'DATABASE_URL' in os.environ:
-            print("Removing DATABASE_URL for local development")
-            del os.environ['DATABASE_URL']
     else:
         if config_name == 'production': 
             is_production = True
@@ -274,18 +269,13 @@ def create_app(config_name=None):
         'MAX_CONTENT_LENGTH': 10 * 1024 * 1024,
     })
     
-    # Database configuration - FORCE SQLite for local development
-    if DEVELOPMENT_MODE:
-        print(f"Local development mode: Using SQLite database")
+    if DEVELOPMENT_MODE and not os.environ.get('DATABASE_URL'):
         app.config['SQLALCHEMY_DATABASE_URI'] = LOCAL_DATABASE_URL
     else:
-        # Production: use DATABASE_URL if available
         db_url = os.environ.get('DATABASE_URL')
         if db_url and db_url.startswith('postgres://'):
             db_url = db_url.replace('postgres://', 'postgresql://')
         app.config['SQLALCHEMY_DATABASE_URI'] = db_url or 'sqlite:///skillstown.db'
-    
-    print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
     # Initialize extensions
     db.init_app(app)
@@ -386,242 +376,7 @@ def create_app(config_name=None):
             print(f"Error reading PDF: {e}")
         return txt.strip()
 
-    @app.route('/course/<int:course_id>/generate-quiz', methods=['POST'])
-    @login_required
-    def generate_course_quiz(course_id):
-        """Generate a quiz based on the course content using AI"""
-        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-        
-        try:
-            # Get course details for quiz generation
-            course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-            if not course_details:
-                flash('Course details not found', 'error')
-                return redirect(get_url_for('course_detail', course_id=course_id))
-            
-            # Get detailed course info from catalog
-            course_info = get_detailed_course_info(course.course_name)
-            
-            # Generate quiz using Gemini
-            quiz_data = generate_quiz_from_course_content(course, course_details, course_info)
-            
-            if not quiz_data:
-                flash('Failed to generate quiz', 'error')
-                return redirect(get_url_for('course_detail', course_id=course_id))
-            
-            # Create quiz via API call to your quiz backend
-            quiz_payload = {
-                'title': f"{course.course_name} - Knowledge Check",
-                'subject': course.category,
-                'description': f"Quiz generated from {course.course_name} course content",
-                'isPublic': False,  # Private quiz for this user
-                'questions': quiz_data['questions']
-            }
-            
-            # Make API call to create quiz (you'll need to handle authentication)
-            quiz_response = requests.post(
-                f"{QUIZ_API_BASE_URL}/quiz/create",
-                json=quiz_payload,
-                cookies={'as': request.cookies.get('as')},  # Pass authentication
-                timeout=30
-            )
-            
-            if quiz_response.status_code == 201:
-                quiz_id = quiz_response.json().get('quizId')
-                flash('Quiz generated successfully!', 'success')
-                return redirect(f"{QUIZ_API_BASE_URL.replace('8080', '5001')}/quiz/{quiz_id}")
-            else:
-                flash('Failed to create quiz', 'error')
-                return redirect(get_url_for('course_detail', course_id=course_id))
-                
-        except Exception as e:
-            print(f"Error generating quiz: {e}")
-            flash('Error generating quiz. Please try again.', 'error')
-            return redirect(get_url_for('course_detail', course_id=course_id))
-
-    def generate_quiz_from_course_content(course, course_details, course_info):
-        """Generate quiz questions using Gemini AI based on course content"""
-        if not GEMINI_API_KEY:
-            return None
-        
-        # Prepare course content for quiz generation
-        content = f"""
-        Course: {course.course_name}
-        Category: {course.category}
-        Description: {course_details.description}
-        
-        Course Details:
-        {format_course_details(course_info)}
-        
-        Skills covered: {', '.join(course_info.get('skills', []))}
-        Projects: {', '.join(course_info.get('projects', []))}
-        """
-        
-        prompt = f"""
-        Based on the following course content, generate 5 multiple-choice questions to test student understanding.
-        Each question should have 4 options with only one correct answer.
-        
-        Course Content:
-        {content[:3000]}  # Limit content size
-        
-        Return a JSON object with this structure:
-        {{
-            "questions": [
-                {{
-                    "question": "Question text here?",
-                    "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "correctAnswer": "Option A",
-                    "explanation": "Brief explanation of why this is correct"
-                }}
-            ]
-        }}
-        
-        Focus on practical knowledge and key concepts from the course.
-        """
-        
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 2000,
-                "topP": 0.8
-            }
-        }
-        
-        try:
-            response = requests.post(
-                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            if result.get('candidates'):
-                text = result['candidates'][0]['content']['parts'][0]['text']
-                
-                # Extract JSON from response
-                import re
-                json_match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
-                if json_match:
-                    quiz_data = json.loads(json_match.group(1))
-                    return quiz_data
-                else:
-                    # Try to parse the entire response as JSON
-                    quiz_data = json.loads(text.strip())
-                    return quiz_data
-                    
-        except Exception as e:
-            print(f"Error generating quiz with Gemini: {e}")
-            return None
-
-        @app.route('/course/<int:course_id>/quiz-completed', methods=['POST'])
-        @login_required
-        def handle_quiz_completion(course_id):
-            """Handle quiz completion and provide personalized recommendations"""
-            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-            
-            try:
-                quiz_data = request.get_json()
-                score = quiz_data.get('score', 0)
-                weak_areas = quiz_data.get('weak_areas', [])
-                strong_areas = quiz_data.get('strong_areas', [])
-                
-                # Generate personalized recommendations based on quiz results
-                recommendations = generate_personalized_recommendations(
-                    course, score, weak_areas, strong_areas
-                )
-                
-                # Store quiz results in the database
-                course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-                if course_details:
-                    # Update course details with quiz results
-                    quiz_results = {
-                        'score': score,
-                        'weak_areas': weak_areas,
-                        'strong_areas': strong_areas,
-                        'recommendations': recommendations,
-                        'completed_at': datetime.datetime.utcnow().isoformat()
-                    }
-                    course_details.quiz_results = json.dumps(quiz_results)
-                    db.session.commit()
-                
-                return jsonify({
-                    'success': True,
-                    'recommendations': recommendations,
-                    'score': score
-                })
-                
-            except Exception as e:
-                print(f"Error handling quiz completion: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        def generate_personalized_recommendations(course, score, weak_areas, strong_areas):
-            """Generate personalized course recommendations based on quiz performance"""
-            recommendations = {
-                'next_courses': [],
-                'remedial_courses': [],
-                'advanced_courses': [],
-                'specific_advice': ''
-            }
-            
-            catalog = load_course_catalog()
-            
-            # Determine skill level based on score
-            if score >= 80:
-                skill_level = 'advanced'
-                recommendations['specific_advice'] = f"Excellent work on {course.course_name}! You've mastered the core concepts."
-            elif score >= 60:
-                skill_level = 'intermediate'
-                recommendations['specific_advice'] = f"Good progress on {course.course_name}. Focus on strengthening weak areas."
-            else:
-                skill_level = 'beginner'
-                recommendations['specific_advice'] = f"Consider reviewing {course.course_name} fundamentals before advancing."
-            
-            # Find related courses based on category and performance
-            for category in catalog.get('categories', []):
-                for catalog_course in category.get('courses', []):
-                    course_name = catalog_course['name']
-                    course_level = catalog_course.get('level', 'beginner').lower()
-                    
-                    # Skip the current course
-                    if course_name.lower() == course.course_name.lower():
-                        continue
-                    
-                    # Check if course is related to current course category
-                    if category['name'].lower() == course.category.lower():
-                        if score < 60 and course_level == 'beginner':
-                            # Suggest remedial courses for low scores
-                            recommendations['remedial_courses'].append({
-                                'name': course_name,
-                                'category': category['name'],
-                                'reason': f"Strengthen fundamentals in {course.category}",
-                                'description': catalog_course.get('description', '')
-                            })
-                        elif score >= 80 and course_level == 'advanced':
-                            # Suggest advanced courses for high scores
-                            recommendations['advanced_courses'].append({
-                                'name': course_name,
-                                'category': category['name'],
-                                'reason': f"Build on your {course.category} expertise",
-                                'description': catalog_course.get('description', '')
-                            })
-                        elif course_level == 'intermediate':
-                            # General next step courses
-                            recommendations['next_courses'].append({
-                                'name': course_name,
-                                'category': category['name'],
-                                'reason': f"Natural progression from {course.course_name}",
-                                'description': catalog_course.get('description', '')
-                            })
-            
-            # Limit recommendations
-            recommendations['next_courses'] = recommendations['next_courses'][:3]
-            recommendations['remedial_courses'] = recommendations['remedial_courses'][:2]
-            recommendations['advanced_courses'] = recommendations['advanced_courses'][:3]
-            
-            return recommendations
+    # Routes
     @app.route('/')
     def index():
         return render_template('index.html')
@@ -746,105 +501,6 @@ def create_app(config_name=None):
         
         return render_template('auth/register.html')
 
-    @app.route('/webhook/quiz-completed', methods=['POST'])
-    def quiz_completion_webhook():
-        """Handle quiz completion notifications from the quiz system"""
-        try:
-            data = request.get_json()
-            
-            # Validate webhook data
-            required_fields = ['user_id', 'quiz_id', 'score', 'course_context']
-            if not all(field in data for field in required_fields):
-                return jsonify({'error': 'Missing required fields'}), 400
-            
-            user_id = data['user_id']
-            quiz_id = data['quiz_id'] 
-            score = data['score']
-            course_context = data['course_context']  # Should contain course_id
-            weak_areas = data.get('weak_areas', [])
-            strong_areas = data.get('strong_areas', [])
-            
-            # Find the course
-            course_id = course_context.get('course_id')
-            if not course_id:
-                return jsonify({'error': 'Course ID not provided'}), 400
-                
-            course = UserCourse.query.filter_by(
-                id=course_id, 
-                user_id=user_id
-            ).first()
-            
-            if not course:
-                return jsonify({'error': 'Course not found'}), 404
-            
-            # Generate recommendations based on quiz performance
-            recommendations = generate_personalized_recommendations(
-                course, score, weak_areas, strong_areas
-            )
-            
-            # Store quiz attempt
-            quiz_attempt = CourseQuizAttempt(
-                user_id=user_id,
-                course_id=course_id,
-                quiz_api_id=quiz_id,
-                score=score,
-                weak_areas=json.dumps(weak_areas),
-                strong_areas=json.dumps(strong_areas),
-                recommendations_generated=json.dumps(recommendations)
-            )
-            db.session.add(quiz_attempt)
-            
-            # Update course details with latest quiz results
-            course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-            if course_details:
-                quiz_results = {
-                    'score': score,
-                    'weak_areas': weak_areas,
-                    'strong_areas': strong_areas,
-                    'recommendations': recommendations,
-                    'completed_at': datetime.datetime.utcnow().isoformat(),
-                    'quiz_id': quiz_id
-                }
-                course_details.quiz_results = json.dumps(quiz_results)
-            
-            db.session.commit()
-            
-            return jsonify({
-                'success': True,
-                'recommendations': recommendations,
-                'message': 'Quiz results processed successfully'
-            })
-            
-        except Exception as e:
-            db.session.rollback()
-            print(f"Error processing quiz completion webhook: {e}")
-            return jsonify({'error': 'Internal server error'}), 500
-
-    @app.route('/api/course/<int:course_id>/quiz-recommendations')
-    @login_required
-    def get_quiz_recommendations(course_id):
-        """API endpoint to get quiz-based recommendations for a course"""
-        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-        
-        # Get latest quiz attempt
-        latest_attempt = CourseQuizAttempt.query.filter_by(
-            user_id=current_user.id,
-            course_id=course_id
-        ).order_by(CourseQuizAttempt.completed_at.desc()).first()
-        
-        if not latest_attempt:
-            return jsonify({'error': 'No quiz attempts found'}), 404
-        
-        try:
-            recommendations = json.loads(latest_attempt.recommendations_generated)
-            return jsonify({
-                'score': latest_attempt.score,
-                'recommendations': recommendations,
-                'completed_at': latest_attempt.completed_at.isoformat()
-            })
-        except Exception as e:
-            print(f"Error getting quiz recommendations: {e}")
-            return jsonify({'error': 'Failed to get recommendations'}), 500
     @app.route('/logout')
     def logout():
         logout_user()
