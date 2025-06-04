@@ -192,9 +192,10 @@
                             <i class="fas fa-user me-1"></i> {{ current_user.username if current_user.username else 'User' }}
                         </a>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{{ get_url_for('skillstown_user_profile') if get_url_for else url_for('skillstown_user_profile') }}">
+                                <li><a class="dropdown-item" href="{{ get_url_for('profile') if get_url_for else url_for('profile') }}">
                                 <i class="fas fa-user-circle me-1"></i> Profile
-                            </a></li>
+        <li><a class="dropdown-item" href="{{ get_url_for('profile') if get_url_for else url_for('profile') }}">
+                    </a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ get_url_for('logout') if get_url_for else url_for('logout') }}">
                                 <i class="fas fa-sign-out-alt me-1"></i> Logout

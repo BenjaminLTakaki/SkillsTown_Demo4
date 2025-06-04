@@ -19,6 +19,16 @@ from local_config import NARRETEX_API_URL, check_environment, LOCAL_DATABASE_URL
 
 load_dotenv()
 
+# Global helper to load course catalog for use by functions outside create_app
+def load_course_catalog():
+    try:
+        catalog_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'course_catalog.json')
+        with open(catalog_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {'categories': []}
+    
+
 # Production detection
 is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') == 'production'
 
@@ -38,15 +48,24 @@ def get_url_for(*args, **kwargs):
 from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, UserCourse, db
 
 def get_quiz_api_headers():
-    pass
+    return {
+        'Authorization': f'Bearer {QUIZ_API_ACCESS_TOKEN}',
+        'Content-Type': 'application/json'
+    }
     
 
 def generate_podcast_for_course(course_name, course_description):
     try:
-        pass
+        # This would integrate with a podcast generation service
+        # For now, return a placeholder
+        return {
+            'success': True, 
+            'message': f'Podcast for {course_name} would be generated here',
+            'url': None
+        }
             
     except Exception as e:
-        pass
+        return {'success': False, 'error': str(e)}
         
 
 def get_detailed_course_info(course_name):
@@ -54,11 +73,16 @@ def get_detailed_course_info(course_name):
     Get detailed course information from the course catalog
     """
     try:
-        pass
-        
+        catalog = load_course_catalog()
+        for category in catalog.get('categories', []):
+            for course in category.get('courses', []):
+                if course.get('name', '').lower() == course_name.lower():
+                    return course
+        return {}
         
     except Exception as e:
-        pass
+        print(f"Error getting course info: {e}")
+        return {}
         
 
 def format_course_details(course_details):
@@ -66,25 +90,25 @@ def format_course_details(course_details):
     Format course details into a comprehensive text description
     """
     if not course_details:
-        pass
+        return "No course details available."
     
     formatted = f"Course: {course_details.get('name', 'Unknown')}\\n\\n"
     formatted += f"Description: {course_details.get('description', 'No description available')}\n\n"
     
     if 'duration' in course_details:
-        pass
+        formatted += f"Duration: {course_details['duration']}\n"
     
     if 'level' in course_details:
-        pass
+        formatted += f"Level: {course_details['level']}\n"
     
     if 'skills' in course_details and course_details['skills']:
-        pass
+        formatted += f"Skills: {', '.join(course_details['skills'])}\n"
     
     if 'projects' in course_details and course_details['projects']:
-        pass
+        formatted += f"Projects: {len(course_details['projects'])} hands-on projects\n"
     
     if 'career_paths' in course_details and course_details['career_paths']:
-        pass
+        formatted += f"Career Paths: {', '.join(course_details['career_paths'])}\n"
     
     return formatted
 
@@ -107,12 +131,12 @@ def extract_skills_fallback(cv_text):
         r'\b(?:HTML|CSS|React|Angular|Vue|Node\.js|Express|Django|Flask)\b',
         r'\b(?:SQL|MySQL|PostgreSQL|MongoDB|SQLite|Oracle|Redis)\b',
         r'\b(?:Git|Docker|Kubernetes|AWS|Azure|GCP|Jenkins|CI/CD)\b',
-        r'\b(?:Machine Learning|AI|Data Science|Analytics|TensorFlow|PyTorch)\b',
-        r'\b(?:Project Management|Agile|Scrum|Leadership|Communication)\b',
+        r'\b(?:Machine Learning|AI|Data Science|Analytics|TensorFlow|PyTorch)\b',        r'\b(?:Project Management|Agile|Scrum|Leadership|Communication)\b',
     ]
     skills = []
     for pat in patterns:
-        pass
+        matches = re.findall(pat, cv_text, re.IGNORECASE)
+        skills.extend(matches)
         
     return {
         "current_skills": skills,
@@ -125,12 +149,25 @@ def extract_skills_fallback(cv_text):
 # Gemini-based analysis
 def analyze_skills_with_gemini(cv_text, job_description=None):
     if not GEMINI_API_KEY:
-        pass
+        return extract_skills_fallback(cv_text)
     
     if job_description and job_description.strip():
-        pass
+        prompt = f"""Analyze this CV and compare it with the job description. Extract skills, experience level, and provide learning recommendations.
+
+CV Content:
+{cv_text}
+
+Job Description:
+{job_description}
+
+Please provide a JSON response with: current_skills, skill_categories, experience_level, learning_recommendations, career_paths"""
     else:
-        pass
+        prompt = f"""Analyze this CV and extract skills, experience level, and provide learning recommendations.
+
+CV Content:
+{cv_text}
+
+Please provide a JSON response with: current_skills, skill_categories, experience_level, learning_recommendations, career_paths"""
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -142,9 +179,25 @@ def analyze_skills_with_gemini(cv_text, job_description=None):
     }
     
     try:
-        pass
+        response = requests.post(
+            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            json=payload,
+            headers={'Content-Type': 'application/json'},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if 'candidates' in result and result['candidates']:
+                content = result['candidates'][0]['content']['parts'][0]['text']
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    return extract_skills_fallback(cv_text)
+        
+        return extract_skills_fallback(cv_text)
     except Exception:
-        pass
+        return extract_skills_fallback(cv_text)
         
 
 # App factory
@@ -157,9 +210,9 @@ def create_app(config_name=None):
         is_production = False
     else:
         if config_name == 'production': 
-            pass
+            is_production = True
         elif config_name is not None: 
-            pass
+            is_production = False
             
 
     app = Flask(__name__)
@@ -202,9 +255,9 @@ def create_app(config_name=None):
     @app.template_filter('from_json')
     def from_json_filter(json_str):
         try:
-            pass
+            return json.loads(json_str) if json_str else {}
         except:
-            pass
+            return {}
             
 
     @app.template_filter('urlencode')
@@ -231,10 +284,10 @@ def create_app(config_name=None):
     # Helpers
     COURSE_CATALOG_PATH = os.path.join(os.path.dirname(__file__), 'static', 'data', 'course_catalog.json')
     
-    def load_course_catalog():
+    def load_course_catalog():        
         try:
             with open(COURSE_CATALOG_PATH, 'r', encoding='utf-8') as f:
-                pass
+                return json.load(f)
         except:
             return {'categories': []}
     
@@ -245,20 +298,27 @@ def create_app(config_name=None):
         if not catalog: 
             catalog = load_course_catalog()
         q = query.lower().strip()
-        res = []
+        res = []        
         for cat in catalog.get('categories', []):
             for c in cat.get('courses', []):
-                pass
+                score = calc_score(q, c.get('title', ''), c.get('description', ''))
+                if score > 0:
+                    course_result = c.copy()
+                    course_result['relevance_score'] = score
+                    course_result['category'] = cat.get('name', '')
+                    res.append(course_result)
         return sorted(res, key=lambda x: x['relevance_score'], reverse=True)
     
     def allowed_file(fn): 
         return '.' in fn and fn.rsplit('.', 1)[1].lower() == 'pdf'
     
     def extract_text_from_pdf(fp):
-        txt = ''
+        txt = ''        
         try:
             with open(fp, 'rb') as f:
-                pass
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    txt += page.extract_text() + '\n'
         except Exception as e:
             print(f"Error reading PDF: {e}")
         return txt.strip()
@@ -319,9 +379,9 @@ def create_app(config_name=None):
         """Get beginner/foundational courses from catalog"""
         courses = []
         for category in catalog.get('categories', []):
-            for course in category.get('courses', []):
+            for course in category.get('courses', []):                
                 if course.get('level', '').lower() in ['beginner', 'basic', 'foundational']:
-                    pass
+                    courses.append(course)
             if len(courses) >= 4:
                 break
         return courses
@@ -330,9 +390,9 @@ def create_app(config_name=None):
         """Get intermediate courses from catalog"""
         courses = []
         for category in catalog.get('categories', []):
-            for course in category.get('courses', []):
+            for course in category.get('courses', []):                
                 if course.get('level', '').lower() in ['intermediate', 'medium']:
-                    pass
+                    courses.append(course)
             if len(courses) >= 4:
                 break
         return courses
@@ -341,9 +401,9 @@ def create_app(config_name=None):
         """Get advanced courses from catalog"""
         courses = []
         for category in catalog.get('categories', []):
-            for course in category.get('courses', []):
+            for course in category.get('courses', []):                
                 if course.get('level', '').lower() in ['advanced', 'expert', 'professional']:
-                    pass
+                    courses.append(course)
             if len(courses) >= 4:
                 break
         return courses
@@ -352,6 +412,10 @@ def create_app(config_name=None):
     @app.route('/')
     def index():
         return render_template('index.html')
+
+    @app.route('/about')
+    def about():
+        return render_template('about.html')
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -447,14 +511,48 @@ def create_app(config_name=None):
             catalog = load_course_catalog()
             results = search_courses(query, catalog)
         
-        return render_template('courses/search.html', query=query, results=results)
-
+        return render_template('courses/search.html', query=query, results=results)    
     @app.route('/my-courses')
     @login_required
     def my_courses():
-        # Get user's enrolled courses
         user_courses = UserCourse.query.filter_by(user_id=current_user.id).all()
-        return render_template('courses/my_courses.html', courses=user_courses)
+        
+        stats = get_skillstown_stats(current_user.id)
+        return render_template('courses/my_courses.html', courses=user_courses, stats=stats)
+
+    @app.route('/enroll', methods=['POST'])
+    @login_required
+    def enroll_course():
+        course_name = request.form.get('course_name')
+        course_description = request.form.get('course_description', '')
+        
+        if not course_name:
+            flash('Course name is required', 'error')
+            return redirect(get_url_for('search'))
+        
+        # Check if user is already enrolled
+        existing_enrollment = UserCourse.query.filter_by(
+            user_id=current_user.id,
+            course_name=course_name
+        ).first()
+        
+        if existing_enrollment:
+            flash('You are already enrolled in this course', 'info')
+            return redirect(get_url_for('my_courses'))
+        
+        # Create new enrollment
+        user_course = UserCourse(
+            user_id=current_user.id,
+            course_name=course_name,
+            course_description=course_description,
+            status='enrolled'
+        )
+        
+        db.session.add(user_course)
+        db.session.commit()
+        
+        flash(f'Successfully enrolled in {course_name}!', 'success')
+        return redirect(get_url_for('my_courses'))
 
     @app.route('/profile')
     @login_required
@@ -462,11 +560,13 @@ def create_app(config_name=None):
         # Get user stats
         stats = get_skillstown_stats(current_user.id)
         return render_template('profile.html', stats=stats)
-
-    @app.route('/about')
-    def about():
-        return render_template('about.html')
-
+    
+    @app.route('/skillstown-profile')
+    @login_required
+    def skillstown_user_profile():
+        # Get user stats
+        stats = get_skillstown_stats(current_user.id)
+        return render_template('profile.html', stats=stats)    
     @app.route('/course/<int:course_id>')
     @login_required
     def course_detail(course_id):
@@ -478,7 +578,15 @@ def create_app(config_name=None):
         # Get course details
         course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
         
-        return render_template('courses/course_detail.html', course=course, details=course_details)
+        # Default empty materials if none exists
+        materials = {'materials': []}
+        if course_details and course_details.materials:
+            try:
+                materials = json.loads(course_details.materials)
+            except:
+                pass  # Use the default empty materials
+        
+        return render_template('courses/course_detail.html', course=course, course_details=course_details, materials=materials)
 
     @app.route('/course/<int:course_id>/update-status', methods=['POST'])
     @login_required
@@ -543,7 +651,7 @@ def create_app(config_name=None):
                 "course": {
                     "name": course.course_name,
                     "description": description,
-                    "duration": catalog_info.get('duration', '8 weeks'),
+                    "duration"
                     "level": catalog_info.get('level', 'Intermediate'),
                     "skills": catalog_info.get('skills', []),
                     "projects": catalog_info.get('projects', []),
@@ -818,15 +926,48 @@ def create_app(config_name=None):
     def get_quiz_recommendations(course_id):
         """Get AI-generated course recommendations based on quiz performance"""
         try:
-            pass # Placeholder for implementation
-                    
+            # Verify user owns this course
+            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+            if not course:
+                return jsonify({'error': 'Course not found'}), 404
+            
+            # Fetch latest quiz attempt
+            latest = (CourseQuizAttempt.query
+                      .join(CourseQuiz, CourseQuizAttempt.course_quiz_id == CourseQuiz.id)
+                      .filter(CourseQuiz.user_course_id == course_id,
+                              CourseQuizAttempt.user_id == current_user.id)
+                      .order_by(CourseQuizAttempt.completed_at.desc())
+                      .first())
+            if not latest:
+                return jsonify({'error': 'No quiz attempts found'}), 404
+            
+            # Generate recommendations from latest attempt
+            recs = generate_course_recommendations_from_quiz(latest, [])
+            return jsonify(recs)
         except Exception as e:
-            print(f"Error getting quiz recommendations: {e}")
-            return jsonify({'error': str(e)}), 500    # PODCAST ROUTES
+             print(f"Error getting quiz recommendations: {e}")
+             return jsonify({'error': str(e)}), 500
+
     @app.route('/course/<int:course_id>/generate-podcast', methods=['POST'])
     @login_required
-    def generate_podcast(course_id): # Added placeholder function
-        pass
+    def generate_podcast(course_id):
+        """Generate a podcast for the course"""
+        try:
+            # Verify user owns this course
+            uc = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+            if not uc:
+                return jsonify({'error': 'Course not found'}), 404
+            
+            # Use course description or detail
+            detail = CourseDetail.query.filter_by(user_course_id=course_id).first()
+            desc = detail.description if detail and detail.description else uc.course_description
+            
+            # Generate podcast
+            result = generate_podcast_for_course(uc.course_name, desc)
+            return jsonify(result)
+        except Exception as e:
+            print(f"Error generating podcast: {e}")
+            return jsonify({'error': str(e)}), 500
 
     return app
 
