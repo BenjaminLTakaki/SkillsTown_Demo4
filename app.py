@@ -39,22 +39,13 @@ from models import Company, Student, Category, ContentPage, Course, CourseConten
 
 def get_quiz_api_headers():
     """Get headers for quiz API requests with proper authentication"""
-    # Use the access token from local_config.py or environment
     access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
-    
-    # Try multiple authentication methods - the Quiz API might require specific format
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': f'Bearer {access_token}',
-        'X-API-Key': access_token,  # Some APIs require this header
-        'X-Access-Token': access_token,  # Alternative header
-        'Accept': 'application/json'
+        'Authorization': f'Bearer {access_token}'
     }
-    
     # Debug: Print headers (remove in production)
     print(f"[DEBUG] Quiz API headers: {headers}")
-    print(f"[DEBUG] Using token: {access_token[:20]}..." if access_token else "[DEBUG] No token found!")
-    
     return headers
 
 def generate_podcast_for_course(course_name, course_description):
@@ -647,14 +638,11 @@ def create_app(config_name=None):
                 print(f"[DEBUG] Access denied for user {current_user.id} to quiz {quiz_id}")
                 return jsonify({'error': 'Access denied'}), 403
             
-            print(f"[DEBUG] Calling quiz API: {QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course")
+            # Get the user's quiz UUID
+            quiz_user_uuid = current_user.get_quiz_uuid()
             
-            # Get quiz details from API - try different endpoints
-            endpoints_to_try = [
-                f"/quiz/{quiz_id}/from-course",
-                f"/quiz/{quiz_id}/details",
-                f"/quiz/{quiz_id}"
-            ]
+            # Only use the "from-course" endpoint with Authorization header
+            endpoints_to_try = [f"/quiz/{quiz_id}/{quiz_user_uuid}/from-course"]  # Use GET /quiz/:quizId/:userId/from-course
             
             response = None
             for endpoint in endpoints_to_try:
@@ -692,7 +680,9 @@ def create_app(config_name=None):
             print(f"[DEBUG] Exception in get_quiz_details: {e}")
             import traceback
             traceback.print_exc()
-            return jsonify({'error': str(e)}), 500    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
     @login_required  
     def start_quiz_attempt(quiz_id):
         """Start a new quiz attempt"""
@@ -716,13 +706,8 @@ def create_app(config_name=None):
             # Get the user's quiz UUID
             quiz_user_uuid = current_user.get_quiz_uuid()
             
-            # Try different endpoints for starting attempt, including user-specific ones
-            endpoints_to_try = [
-                f"/user/{quiz_user_uuid}/quiz/{quiz_id}/attempt",  # User-specific endpoint
-                f"/quiz/{quiz_id}/attempt-from-course",
-                f"/quiz/{quiz_id}/start",
-                f"/quiz/{quiz_id}/attempt"
-            ]
+            # Only the "attempt-from-course" endpoint uses header auth
+            endpoints_to_try = [f"/quiz/{quiz_id}/{quiz_user_uuid}/attempt-from-course"]  # Use POST /quiz/:quizId/:userId/attempt-from-course
             
             response = None
             for endpoint in endpoints_to_try:
@@ -730,17 +715,18 @@ def create_app(config_name=None):
                     print(f"[DEBUG] Trying start endpoint: {QUIZ_API_BASE_URL}{endpoint}")
                     response = requests.post(
                         f"{QUIZ_API_BASE_URL}{endpoint}",
+                        json={'user_id': quiz_user_uuid},
                         headers=get_quiz_api_headers(),
                         timeout=30
                     )
                     print(f"[DEBUG] Start response status: {response.status_code}")
-                    
+                     
                     if response.status_code in [200, 201]:
                         print(f"[DEBUG] Success starting with endpoint: {endpoint}")
                         break
                     else:
                         print(f"[DEBUG] Failed starting with endpoint {endpoint}: {response.status_code} - {response.text}")
-                        
+                     
                 except Exception as e:
                     print(f"[DEBUG] Exception starting with endpoint {endpoint}: {e}")
                     continue
@@ -792,12 +778,10 @@ def create_app(config_name=None):
             user_answers = request.json
             print(f"[DEBUG] User answers: {user_answers}")
             
-            # Try different endpoints for completing attempt
-            endpoints_to_try = [
-                f"/quiz/attempt/{attempt_id}/complete-from-course",
-                f"/quiz/attempt/{attempt_id}/complete",
-                f"/quiz/attempt/{attempt_id}/submit"
-            ]
+            # Get the user's quiz UUID
+            quiz_user_uuid = current_user.get_quiz_uuid()
+            # Only the "complete-from-course" endpoint uses header auth
+            endpoints_to_try = [f"/quiz/attempt/{attempt_id}/{quiz_user_uuid}/complete-from-course"]  # Use POST /quiz/attempt/:attemptId/:userId/complete-from-course
             
             response = None
             for endpoint in endpoints_to_try:
@@ -988,19 +972,16 @@ def create_app(config_name=None):
             # Call quiz API to get detailed results and recommendations
             try:
                 response = requests.get(
-                    f"{QUIZ_API_BASE_URL}/user/{quiz_user_uuid}/quiz-attempts-from-course",
+                    f"{QUIZ_API_BASE_URL}/quiz/attempt/{latest_attempt.attempt_api_id}/{quiz_user_uuid}/results-from-course",
                     headers=get_quiz_api_headers(),
                     timeout=30
                 )
-                
                 if response.status_code == 200:
-                    attempts_data = response.json()
-                    
-                    # Find the matching attempt and generate recommendations
+                    result_data = response.json()
+                    # Generate recommendations using API results
                     recommendations = generate_course_recommendations_from_quiz(
-                        latest_attempt, attempts_data.get('attempts', [])
+                        latest_attempt, [result_data]
                     )
-                    
                     return jsonify({
                         'latest_attempt': {
                             'score': latest_attempt.score,
@@ -1023,8 +1004,7 @@ def create_app(config_name=None):
                         'recommendations': recommendations
                     })
             except requests.RequestException as e:
-                print(f"Quiz API request failed: {e}")
-                # Fallback to basic recommendations
+                # Fallback to basic recommendations on request failure
                 recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
                 return jsonify({
                     'latest_attempt': {
@@ -1384,9 +1364,6 @@ def create_app(config_name=None):
             access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
             base_url = QUIZ_API_BASE_URL
             
-            # Test different authentication methods with quiz-specific endpoints
-            test_results = []
-            
             # Test 1: Health check with no auth
             try:
                 response = requests.get(f"{base_url}/health", timeout=10)
@@ -1508,6 +1485,8 @@ def create_app(config_name=None):
                     "level": "Beginner"
                 }
             }
+            # Define debug user UUID for constructing endpoints
+            debug_user_uuid = create_payload['user_id']
             
             create_headers = get_quiz_api_headers()
             
@@ -1530,12 +1509,9 @@ def create_app(config_name=None):
                     # Step 2: Try to start an attempt (this is where it fails)
                     print(f"[DEBUG] Step 2: Starting quiz attempt for quiz {quiz_id}...")
                     
-                    # Try different attempt endpoints
+                    # Try the correct attempt endpoint format with userId
                     attempt_endpoints = [
-                        f"/quiz/{quiz_id}/attempt",
-                        f"/quiz/{quiz_id}/start",
-                        f"/quiz/{quiz_id}/attempt-from-course",
-                        f"/user/debug-user-uuid-12345/quiz/{quiz_id}/attempt"
+                        f"/quiz/{quiz_id}/{debug_user_uuid}/attempt-from-course"
                     ]
                     
                     attempt_results = []
