@@ -407,36 +407,52 @@ async function generateQuiz(courseId) {
 // Load quiz for taking
 async function loadQuizForTaking(quizId) {
     try {
-        // Get quiz details
-        const response = await fetch(`/quiz/${quizId}/details`);
-        const quiz = await response.json();
+        console.log(`[DEBUG] Loading quiz for taking: ${quizId}`);
         
-        if (response.ok) {
-            currentQuiz = quiz;
-            displayQuiz(quiz);
-            
-            // Start a quiz attempt
-            const attemptResponse = await fetch(`/quiz/${quizId}/start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            const attemptData = await attemptResponse.json();
-            if (attemptResponse.ok) {
-                currentAttempt = attemptData;
-                console.log('Quiz attempt started:', attemptData.attemptId);
-            }
-        } else {
-            throw new Error('Failed to load quiz details');
+        // Get quiz details using the correct endpoint
+        const response = await fetch(`/quiz/${quizId}/details`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
+        const quiz = await response.json();
+        
+        if (quiz.error) {
+            throw new Error(quiz.error);
+        }
+        
+        currentQuiz = quiz;
+        displayQuiz(quiz);
+        
+        // Start a quiz attempt using correct endpoint
+        console.log(`[DEBUG] Starting quiz attempt for quiz: ${quizId}`);
+        const attemptResponse = await fetch(`/quiz/${quizId}/start`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!attemptResponse.ok) {
+            const attemptError = await attemptResponse.json();
+            throw new Error(`Failed to start attempt: ${attemptError.error || attemptResponse.statusText}`);
+        }
+        
+        const attemptData = await attemptResponse.json();
+        currentAttempt = attemptData;
+        console.log('[DEBUG] Quiz attempt started:', attemptData.attemptId);
+        
     } catch (error) {
-        console.error('Error loading quiz:', error);
+        console.error('[DEBUG] Error loading quiz:', error);
         document.getElementById('quizMessage').innerHTML = 
-            `<div class="alert alert-danger">Error loading quiz: ${error.message}</div>`;
+            `<div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                Error loading quiz: ${error.message}
+                <br><small>Check the browser console for more details.</small>
+            </div>`;
     }
 }
-
 // Display quiz interface
 function displayQuiz(quiz) {
     const quizInterface = document.getElementById('quizInterface');
@@ -543,24 +559,37 @@ async function submitQuiz() {
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
     
     try {
+        console.log(`[DEBUG] Submitting quiz attempt: ${currentAttempt.attemptId}`);
+        console.log(`[DEBUG] User answers:`, userAnswers);
+        
         const response = await fetch(`/quiz/attempt/${currentAttempt.attemptId}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userAnswers)
         });
         
-        const result = await response.json();
-        
-        if (response.ok) {
-            displayQuizResults(result);
-            loadQuizHistory(); // Refresh quiz history
-        } else {
-            throw new Error(result.error || 'Failed to submit quiz');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
         }
         
+        const result = await response.json();
+        
+        if (result.error) {
+            throw new Error(result.error);
+        }
+        
+        console.log('[DEBUG] Quiz submitted successfully:', result);
+        displayQuizResults(result);
+        loadQuizHistory(); // Refresh quiz history
+        
     } catch (error) {
-        console.error('Error submitting quiz:', error);
-        alert('Error submitting quiz: ' + error.message);
+        console.error('[DEBUG] Error submitting quiz:', error);
+        document.getElementById('quizMessage').innerHTML = 
+            `<div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                Error submitting quiz: ${error.message}
+            </div>`;
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-check me-2"></i>Submit Quiz';

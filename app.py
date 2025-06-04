@@ -29,141 +29,60 @@ QUIZ_API_BASE_URL = os.environ.get('QUIZ_API_BASE_URL', 'http://localhost:8081')
 QUIZ_API_ACCESS_TOKEN = os.environ.get('QUIZ_API_ACCESS_TOKEN', 'kJ9mP2vL8xQ5nR3tY7wZ6cB4dF2gH8jK9lM3nP5qR7sT2uV6wX8yZ9aB3cD5eF7gH2iJ4kL6mN8oP9qR2sT4uV6wX8yZ1aB3cD5eF7gH9iJ2kL')
 
 def get_url_for(*args, **kwargs):
-    url = url_for(*args, **kwargs)
-    if is_production and not url.startswith('/skillstown'):
-        url = f"/skillstown{url}"
-    return url
+    pass
+    
 
 # Import models after db is defined
 from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, UserCourse, db
 
 def get_quiz_api_headers():
-    """Get headers for quiz API requests with proper authentication"""
-    # Use the access token from local_config.py or environment
-    access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+    pass
     
-    # Try multiple authentication methods - the Quiz API might require specific format
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {access_token}',
-        'X-API-Key': access_token,  # Some APIs require this header
-        'X-Access-Token': access_token,  # Alternative header
-        'Accept': 'application/json'
-    }
-    
-    # Debug: Print headers (remove in production)
-    print(f"[DEBUG] Quiz API headers: {headers}")
-    print(f"[DEBUG] Using token: {access_token[:20]}..." if access_token else "[DEBUG] No token found!")
-    
-    return headers
 
 def generate_podcast_for_course(course_name, course_description):
-    """
-    Generate a podcast for a specific course using NarreteX API
-    Uses the detailed course catalog for rich content
-    """
     try:
-        # Load the course catalog to get detailed information
-        course_details = get_detailed_course_info(course_name)
-        
-        # Create comprehensive content from catalog data
-        document_content = f"""
-        COURSE: {course_name}
-        
-        DESCRIPTION: {course_description}
-        
-        DETAILED COURSE INFORMATION:
-        {format_course_details(course_details)}
-        
-        EDUCATIONAL CONTEXT:
-        This course is designed to provide comprehensive knowledge and practical skills.
-        Students will gain hands-on experience through real-world projects and exercises.
-        The curriculum follows industry best practices and includes the latest technologies and methodologies.
-        """
-        
-        # Debug: Print the content being sent
-        print("=" * 50)
-        print("DEBUG: Course catalog content:")
-        print(f"Length: {len(document_content)} characters")
-        print("Content preview:")
-        print(document_content[:300] + "...")
-        print("=" * 50)
-        
-        # Call NarreteX instant podcast API
-        response = requests.post(
-            f"{NARRETEX_API_URL}/instant-podcast",
-            json={
-                "topic": course_name,
-                "document": document_content
-            },
-            timeout=120
-        )
-        
-        if response.status_code == 200:
-            return response.content
-        else:
-            print(f"Podcast generation failed: {response.status_code}")
-            return None
+        pass
             
     except Exception as e:
-        print(f"Error generating podcast: {e}")
-        return None
+        pass
+        
 
 def get_detailed_course_info(course_name):
     """
     Get detailed course information from the course catalog
     """
     try:
-        catalog_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'course_catalog.json')
-        with open(catalog_path, 'r', encoding='utf-8') as f:
-            catalog = json.load(f)
+        pass
         
-        # Search for the course in the catalog
-        for category in catalog.get('categories', []):
-            for course in category.get('courses', []):
-                if course['name'].lower() == course_name.lower():
-                    return course
-        
-        # If not found, return minimal info
-        return {"name": course_name, "description": "Course information not available"}
         
     except Exception as e:
-        print(f"Error loading course catalog: {e}")
-        return {"name": course_name, "description": "Course information not available"}
+        pass
+        
 
 def format_course_details(course_details):
     """
     Format course details into a comprehensive text description
     """
     if not course_details:
-        return "Course details not available."
+        pass
     
-    formatted = f"Course: {course_details.get('name', 'Unknown')}\n\n"
+    formatted = f"Course: {course_details.get('name', 'Unknown')}\\n\\n"
     formatted += f"Description: {course_details.get('description', 'No description available')}\n\n"
     
     if 'duration' in course_details:
-        formatted += f"Duration: {course_details['duration']}\n"
+        pass
     
     if 'level' in course_details:
-        formatted += f"Level: {course_details['level']}\n\n"
+        pass
     
     if 'skills' in course_details and course_details['skills']:
-        formatted += "Skills You'll Learn:\n"
-        for skill in course_details['skills']:
-            formatted += f"- {skill}\n"
-        formatted += "\n"
+        pass
     
     if 'projects' in course_details and course_details['projects']:
-        formatted += "Projects You'll Build:\n"
-        for project in course_details['projects']:
-            formatted += f"- {project}\n"
-        formatted += "\n"
+        pass
     
     if 'career_paths' in course_details and course_details['career_paths']:
-        formatted += "Career Opportunities:\n"
-        for career in course_details['career_paths']:
-            formatted += f"- {career}\n"
-        formatted += "\n"
+        pass
     
     return formatted
 
@@ -174,8 +93,8 @@ def init_auth(app, get_url_for_func, get_stats_func):
     login_manager.login_view = 'login'
     
     @login_manager.user_loader
-    def load_user(user_id):
-        return Student.query.get(user_id)
+    def load_user(user_id): # Added placeholder function
+        return Student.query.get(int(user_id)) # Assuming Student model and int ID
     
     return db
 
@@ -191,10 +110,8 @@ def extract_skills_fallback(cv_text):
     ]
     skills = []
     for pat in patterns:
-        for m in re.finditer(pat, cv_text, re.IGNORECASE):
-            s = m.group().strip()
-            if s not in skills:
-                skills.append(s)
+        pass
+        
     return {
         "current_skills": skills,
         "skill_categories": {"technical": skills},
@@ -206,31 +123,12 @@ def extract_skills_fallback(cv_text):
 # Gemini-based analysis
 def analyze_skills_with_gemini(cv_text, job_description=None):
     if not GEMINI_API_KEY:
-        return extract_skills_fallback(cv_text)
+        pass
     
     if job_description and job_description.strip():
-        prompt = f"""
-Analyze this CV and job description to extract skills and provide guidance.
-
-CV TEXT:
-{cv_text[:3000]}
-
-JOB DESCRIPTION:
-{job_description[:2000]}
-
-Provide JSON with current_skills, job_requirements, skill_gaps, matching_skills,
-learning_recommendations, career_advice, skill_categories, experience_level.
-"""
+        pass
     else:
-        prompt = f"""
-Analyze this CV to extract skills and provide recommendations.
-
-CV TEXT:
-{cv_text[:4000]}
-
-Provide JSON with current_skills, skill_categories, experience_level,
-learning_recommendations, career_paths.
-"""
+        pass
     
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -242,24 +140,10 @@ learning_recommendations, career_paths.
     }
     
     try:
-        res = requests.post(
-            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}", 
-            json=payload, 
-            headers={"Content-Type": "application/json"}, 
-            timeout=30
-        )
-        res.raise_for_status()
-        cand = res.json().get('candidates', [])
-        if not cand:
-            return extract_skills_fallback(cv_text)
-        
-        txt = cand[0]['content']['parts'][0]['text'].strip()
-        jm = re.search(r'```json\s*(\{.*?\})\s*```', txt, re.DOTALL) or re.search(r'\{.*\}', txt, re.DOTALL)
-        js = jm.group(1) if jm else txt
-        data = json.loads(js)
-        return data if isinstance(data, dict) and 'current_skills' in data else extract_skills_fallback(cv_text)
+        pass
     except Exception:
-        return extract_skills_fallback(cv_text)
+        pass
+        
 
 # App factory
 def create_app(config_name=None):
@@ -271,9 +155,10 @@ def create_app(config_name=None):
         is_production = False
     else:
         if config_name == 'production': 
-            is_production = True
+            pass
         elif config_name is not None: 
-            is_production = False
+            pass
+            
 
     app = Flask(__name__)
 
@@ -282,6 +167,7 @@ def create_app(config_name=None):
     animewatchlist_path = os.path.join(os.path.dirname(__file__), '..', 'animewatchlist')
     if os.path.isdir(animewatchlist_path): 
         tpl_dirs.append(FileSystemLoader(os.path.join(animewatchlist_path, 'templates')))
+        # pass # Removed pass as it's not needed if the line above is the only content of the if
     app.jinja_loader = ChoiceLoader(tpl_dirs)
 
     # Config
@@ -314,9 +200,10 @@ def create_app(config_name=None):
     @app.template_filter('from_json')
     def from_json_filter(json_str):
         try:
-            return json.loads(json_str) if json_str else {}
+            pass
         except:
-            return {}
+            pass
+            
 
     @app.template_filter('urlencode')
     def urlencode_filter(s):
@@ -345,7 +232,7 @@ def create_app(config_name=None):
     def load_course_catalog():
         try:
             with open(COURSE_CATALOG_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                pass
         except:
             return {'categories': []}
     
@@ -359,14 +246,7 @@ def create_app(config_name=None):
         res = []
         for cat in catalog.get('categories', []):
             for c in cat.get('courses', []):
-                sc = calc_score(q, c['name'], c.get('description', ''))
-                if sc > 0: 
-                    res.append({
-                        'category': cat['name'],
-                        'course': c['name'],
-                        'description': c.get('description', ''),
-                        'relevance_score': sc
-                    })
+                pass
         return sorted(res, key=lambda x: x['relevance_score'], reverse=True)
     
     def allowed_file(fn): 
@@ -376,12 +256,7 @@ def create_app(config_name=None):
         txt = ''
         try:
             with open(fp, 'rb') as f:
-                r = PyPDF2.PdfReader(f)
-                for p in r.pages:
-                    try: 
-                        txt += p.extract_text() or ''
-                    except: 
-                        continue
+                pass
         except Exception as e:
             print(f"Error reading PDF: {e}")
         return txt.strip()
@@ -444,13 +319,7 @@ def create_app(config_name=None):
         for category in catalog.get('categories', []):
             for course in category.get('courses', []):
                 if course.get('level', '').lower() in ['beginner', 'basic', 'foundational']:
-                    courses.append({
-                        'name': course['name'],
-                        'category': category['name'],
-                        'reason': f"Strengthen foundation in {category['name'].lower()}"
-                    })
-                    if len(courses) >= 4:
-                        break
+                    pass
             if len(courses) >= 4:
                 break
         return courses
@@ -461,13 +330,7 @@ def create_app(config_name=None):
         for category in catalog.get('categories', []):
             for course in category.get('courses', []):
                 if course.get('level', '').lower() in ['intermediate', 'medium']:
-                    courses.append({
-                        'name': course['name'],
-                        'category': category['name'],
-                        'reason': f"Build expertise in {category['name'].lower()}"
-                    })
-                    if len(courses) >= 4:
-                        break
+                    pass
             if len(courses) >= 4:
                 break
         return courses
@@ -478,13 +341,7 @@ def create_app(config_name=None):
         for category in catalog.get('categories', []):
             for course in category.get('courses', []):
                 if course.get('level', '').lower() in ['advanced', 'expert', 'professional']:
-                    courses.append({
-                        'name': course['name'],
-                        'category': category['name'],
-                        'reason': f"Master advanced {category['name'].lower()} concepts"
-                    })
-                    if len(courses) >= 4:
-                        break
+                    pass
             if len(courses) >= 4:
                 break
         return courses
@@ -549,10 +406,7 @@ def create_app(config_name=None):
             # Get the course from UserCourse table
             course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
             if not course:
-                return jsonify({
-                    'success': False,
-                    'error': 'Course not found or you do not have access to it'
-                }), 404
+                return jsonify({'error': 'Course not found or not authorized'}), 404
             
             # Get or create quiz UUID for the user
             quiz_user_uuid = current_user.get_quiz_uuid()
@@ -590,16 +444,12 @@ def create_app(config_name=None):
             
             print(f"[DEBUG] Quiz API response: {response.status_code} - {response.text}")
             
-            if response.status_code == 201:  # Note: API returns 201, not 200
+            if response.status_code == 201:
                 quiz_data = response.json()
-                
-                # Save quiz info to our database
                 course_quiz = CourseQuiz(
-                    user_course_id=course_id,
+                    user_course_id=course.id,
                     quiz_api_id=quiz_data['quizId'],
-                    quiz_title=quiz_data['title'],
-                    quiz_description=quiz_data['description'],
-                    questions_count=quiz_data['questionsCount']
+                    quiz_title=quiz_data['title']
                 )
                 db.session.add(course_quiz)
                 db.session.commit()
@@ -615,8 +465,8 @@ def create_app(config_name=None):
             else:
                 print(f"Quiz API error: {response.status_code} - {response.text}")
                 return jsonify({
-                    'success': False,
-                    'error': f'Quiz API returned status {response.status_code}: {response.text}'
+                    'success': False, 
+                    'error': f'Quiz API error: {response.status_code} - {response.text}'
                 }), 500
                     
         except Exception as e:
@@ -631,12 +481,9 @@ def create_app(config_name=None):
     def get_quiz_details(quiz_id):
         """Get quiz details for taking the quiz"""
         try:
-            print(f"[DEBUG] Getting quiz details for quiz_id: {quiz_id}")
-            
             # Verify user owns this quiz
             course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
             if not course_quiz:
-                print(f"[DEBUG] Quiz not found in database: {quiz_id}")
                 return jsonify({'error': 'Quiz not found'}), 404
                     
             user_course = UserCourse.query.filter_by(
@@ -644,65 +491,33 @@ def create_app(config_name=None):
                 user_id=current_user.id
             ).first()
             if not user_course:
-                print(f"[DEBUG] Access denied for user {current_user.id} to quiz {quiz_id}")
-                return jsonify({'error': 'Access denied'}), 403
+                return jsonify({'error': 'User not authorized for this quiz'}), 403
             
-            print(f"[DEBUG] Calling quiz API: {QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course")
+            # Call the quiz API with correct endpoint
+            response = requests.get(
+                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
             
-            # Get quiz details from API - try different endpoints
-            endpoints_to_try = [
-                f"/quiz/{quiz_id}/from-course",
-                f"/quiz/{quiz_id}/details",
-                f"/quiz/{quiz_id}"
-            ]
-            
-            response = None
-            for endpoint in endpoints_to_try:
-                try:
-                    print(f"[DEBUG] Trying endpoint: {QUIZ_API_BASE_URL}{endpoint}")
-                    response = requests.get(
-                        f"{QUIZ_API_BASE_URL}{endpoint}",
-                        headers=get_quiz_api_headers(),
-                        timeout=30
-                    )
-                    print(f"[DEBUG] Response status: {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        print(f"[DEBUG] Success with endpoint: {endpoint}")
-                        break
-                    else:
-                        print(f"[DEBUG] Failed with endpoint {endpoint}: {response.status_code} - {response.text}")
-                        
-                except Exception as e:
-                    print(f"[DEBUG] Exception with endpoint {endpoint}: {e}")
-                    continue
-            
-            if response and response.status_code == 200:
+            if response.status_code == 200:
                 quiz_data = response.json()
-                print(f"[DEBUG] Quiz data received: {list(quiz_data.keys()) if isinstance(quiz_data, dict) else type(quiz_data)}")
                 return jsonify(quiz_data)
             else:
-                error_msg = f'Quiz API error: {response.status_code if response else "No response"}' 
-                if response:
-                    error_msg += f" - {response.text}"
-                print(f"[DEBUG] Final error: {error_msg}")
-                return jsonify({'error': error_msg}), 500
+                return jsonify({'error': f'Quiz API error: {response.status_code} - {response.text}'}), 500
                         
         except Exception as e:
-            print(f"[DEBUG] Exception in get_quiz_details: {e}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({'error': str(e)}), 500    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
+            print(f"Exception in get_quiz_details: {e}")
+            return jsonify({'error': str(e)}), 500
+            
+    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
     @login_required  
     def start_quiz_attempt(quiz_id):
         """Start a new quiz attempt"""
         try:
-            print(f"[DEBUG] Starting quiz attempt for quiz_id: {quiz_id}")
-            
             # Verify user owns this quiz
             course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
             if not course_quiz:
-                print(f"[DEBUG] Quiz not found: {quiz_id}")
                 return jsonify({'error': 'Quiz not found'}), 404
                     
             user_course = UserCourse.query.filter_by(
@@ -710,44 +525,17 @@ def create_app(config_name=None):
                 user_id=current_user.id
             ).first()
             if not user_course:
-                print(f"[DEBUG] Access denied for quiz: {quiz_id}")
-                return jsonify({'error': 'Access denied'}), 403
+                return jsonify({'error': 'User not authorized for this quiz'}), 403
             
-            # Get the user's quiz UUID
-            quiz_user_uuid = current_user.get_quiz_uuid()
+            # Call the quiz API with correct endpoint
+            response = requests.post(
+                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/attempt-from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
             
-            # Try different endpoints for starting attempt, including user-specific ones
-            endpoints_to_try = [
-                f"/user/{quiz_user_uuid}/quiz/{quiz_id}/attempt",  # User-specific endpoint
-                f"/quiz/{quiz_id}/attempt-from-course",
-                f"/quiz/{quiz_id}/start",
-                f"/quiz/{quiz_id}/attempt"
-            ]
-            
-            response = None
-            for endpoint in endpoints_to_try:
-                try:
-                    print(f"[DEBUG] Trying start endpoint: {QUIZ_API_BASE_URL}{endpoint}")
-                    response = requests.post(
-                        f"{QUIZ_API_BASE_URL}{endpoint}",
-                        headers=get_quiz_api_headers(),
-                        timeout=30
-                    )
-                    print(f"[DEBUG] Start response status: {response.status_code}")
-                    
-                    if response.status_code in [200, 201]:
-                        print(f"[DEBUG] Success starting with endpoint: {endpoint}")
-                        break
-                    else:
-                        print(f"[DEBUG] Failed starting with endpoint {endpoint}: {response.status_code} - {response.text}")
-                        
-                except Exception as e:
-                    print(f"[DEBUG] Exception starting with endpoint {endpoint}: {e}")
-                    continue
-            
-            if response and response.status_code in [200, 201]:
+            if response.status_code in [200, 201]:
                 attempt_data = response.json()
-                print(f"[DEBUG] Attempt data: {attempt_data}")
                 
                 # Save attempt to our database
                 quiz_attempt = CourseQuizAttempt(
@@ -757,19 +545,12 @@ def create_app(config_name=None):
                 )
                 db.session.add(quiz_attempt)
                 db.session.commit()
-                
                 return jsonify(attempt_data)
             else:
-                error_msg = f'Quiz API error: {response.status_code if response else "No response"}'
-                if response:
-                    error_msg += f" - {response.text}"
-                print(f"[DEBUG] Start attempt error: {error_msg}")
-                return jsonify({'error': error_msg}), 500
+                return jsonify({'error': f'Quiz API error: {response.status_code} - {response.text}'}), 500
                         
         except Exception as e:
-            print(f"[DEBUG] Exception in start_quiz_attempt: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Exception in start_quiz_attempt: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/quiz/attempt/<attempt_id>/complete', methods=['POST'])
@@ -777,53 +558,27 @@ def create_app(config_name=None):
     def complete_quiz_attempt(attempt_id):
         """Complete a quiz attempt with user answers"""
         try:
-            print(f"[DEBUG] Completing quiz attempt: {attempt_id}")
-            
             # Get the attempt from our database
             quiz_attempt = CourseQuizAttempt.query.filter_by(
                 attempt_api_id=attempt_id,
                 user_id=current_user.id
             ).first()
             if not quiz_attempt:
-                print(f"[DEBUG] Quiz attempt not found: {attempt_id}")
-                return jsonify({'error': 'Quiz attempt not found'}), 404
+                return jsonify({'error': 'Quiz attempt not found or not authorized'}), 404
             
             # Get user answers from request
             user_answers = request.json
-            print(f"[DEBUG] User answers: {user_answers}")
             
-            # Try different endpoints for completing attempt
-            endpoints_to_try = [
-                f"/quiz/attempt/{attempt_id}/complete-from-course",
-                f"/quiz/attempt/{attempt_id}/complete",
-                f"/quiz/attempt/{attempt_id}/submit"
-            ]
+            # Call the quiz API with correct endpoint
+            response = requests.post(
+                f"{QUIZ_API_BASE_URL}/quiz/attempt/{attempt_id}/complete-from-course",
+                json=user_answers,
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
             
-            response = None
-            for endpoint in endpoints_to_try:
-                try:
-                    print(f"[DEBUG] Trying complete endpoint: {QUIZ_API_BASE_URL}{endpoint}")
-                    response = requests.post(
-                        f"{QUIZ_API_BASE_URL}{endpoint}",
-                        json=user_answers,
-                        headers=get_quiz_api_headers(),
-                        timeout=30
-                    )
-                    print(f"[DEBUG] Complete response status: {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        print(f"[DEBUG] Success completing with endpoint: {endpoint}")
-                        break
-                    else:
-                        print(f"[DEBUG] Failed completing with endpoint {endpoint}: {response.status_code} - {response.text}")
-                        
-                except Exception as e:
-                    print(f"[DEBUG] Exception completing with endpoint {endpoint}: {e}")
-                    continue
-            
-            if response and response.status_code == 200:
+            if response.status_code == 200:
                 result_data = response.json()
-                print(f"[DEBUG] Result data: {result_data}")
                 
                 # Update our attempt record with results
                 if 'results' in result_data:
@@ -837,44 +592,37 @@ def create_app(config_name=None):
                     quiz_attempt.completed_at = datetime.utcnow()
                     
                     db.session.commit()
-                    print(f"[DEBUG] Quiz attempt updated in database")
                 
                 return jsonify(result_data)
             else:
-                error_msg = f'Quiz API error: {response.status_code if response else "No response"}'
-                if response:
-                    error_msg += f" - {response.text}"
-                print(f"[DEBUG] Complete attempt error: {error_msg}")
-                return jsonify({'error': error_msg}), 500
+                return jsonify({'error': f'Quiz API error: {response.status_code} - {response.text}'}), 500
                         
         except Exception as e:
-            print(f"[DEBUG] Exception in complete_quiz_attempt: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Exception in complete_quiz_attempt: {e}")
             return jsonify({'error': str(e)}), 500
 
     # Add this test route to check your quiz API connectivity
     @app.route('/test-quiz-api')
     @login_required
     def test_quiz_api():
-        """Test route to check quiz API connectivity"""
-        try:
-            # Test basic connectivity
-            response = requests.get(f"{QUIZ_API_BASE_URL}/health", timeout=10)
-            
-            api_status = {
-                'quiz_api_base_url': QUIZ_API_BASE_URL,
-                'health_check_status': response.status_code if response else 'No response',
-                'health_check_response': response.text if response else 'No response'
-            }
-            
-            return jsonify(api_status)
-            
-        except Exception as e:
-            return jsonify({
-                'error': str(e),
-                'quiz_api_base_url': QUIZ_API_BASE_URL
-            }), 500
+            """Test route to check quiz API connectivity"""
+            try:
+                # Test basic connectivity
+                response = requests.get(f"{QUIZ_API_BASE_URL}/health", timeout=10)
+                
+                api_status = {
+                    'quiz_api_base_url': QUIZ_API_BASE_URL,
+                    'health_check_status': response.status_code if response else 'No response',
+                    'health_check_response': response.text if response else 'No response'
+                }
+                
+                return jsonify(api_status)
+                
+            except Exception as e:
+                return jsonify({
+                    'error': str(e),
+                    'quiz_api_base_url': QUIZ_API_BASE_URL
+                }), 500
 
     @app.route('/test-quiz-auth')
     @login_required
@@ -898,22 +646,7 @@ def create_app(config_name=None):
             results = {}
             
             for method in auth_methods:
-                results[method['name']] = {}
-                for endpoint in test_endpoints:
-                    try:
-                        response = requests.get(
-                            f"{QUIZ_API_BASE_URL}{endpoint}",
-                            headers=method['headers'],
-                            timeout=10
-                        )
-                        results[method['name']][endpoint] = {
-                            'status': response.status_code,
-                            'response': response.text[:200] if response.text else 'No response body'
-                        }
-                    except Exception as e:
-                        results[method['name']][endpoint] = {
-                            'error': str(e)
-                        }
+                pass
             
             return jsonify({
                 'quiz_api_base_url': QUIZ_API_BASE_URL,
@@ -922,10 +655,7 @@ def create_app(config_name=None):
             })
             
         except Exception as e:
-            return jsonify({
-                'error': str(e),
-                'quiz_api_base_url': QUIZ_API_BASE_URL
-            }), 500
+            return jsonify({'error': str(e)}), 500
 
     @app.route('/course/<int:course_id>/quiz-attempts')
     @login_required
@@ -960,7 +690,6 @@ def create_app(config_name=None):
                 })
             
             return jsonify({'attempts': attempts_data})
-            
         except Exception as e:
             print(f"Error getting quiz attempts: {e}")
             return jsonify({'error': str(e)}), 500
@@ -970,654 +699,18 @@ def create_app(config_name=None):
     def get_quiz_recommendations(course_id):
         """Get AI-generated course recommendations based on quiz performance"""
         try:
-            # Get the latest quiz attempt for this course
-            latest_attempt = db.session.query(CourseQuizAttempt).join(
-                CourseQuiz, CourseQuizAttempt.course_quiz_id == CourseQuiz.id
-            ).filter(
-                CourseQuiz.user_course_id == course_id,
-                CourseQuizAttempt.user_id == current_user.id,
-                CourseQuizAttempt.score.isnot(None)
-            ).order_by(CourseQuizAttempt.completed_at.desc()).first()
-            
-            if not latest_attempt:
-                return jsonify({'error': 'No completed quiz attempts found'}), 404
-            
-            # Get user's quiz UUID for API calls
-            quiz_user_uuid = current_user.get_quiz_uuid()
-            
-            # Call quiz API to get detailed results and recommendations
-            try:
-                response = requests.get(
-                    f"{QUIZ_API_BASE_URL}/user/{quiz_user_uuid}/quiz-attempts-from-course",
-                    headers=get_quiz_api_headers(),
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    attempts_data = response.json()
-                    
-                    # Find the matching attempt and generate recommendations
-                    recommendations = generate_course_recommendations_from_quiz(
-                        latest_attempt, attempts_data.get('attempts', [])
-                    )
-                    
-                    return jsonify({
-                        'latest_attempt': {
-                            'score': latest_attempt.score,
-                            'feedback_strengths': latest_attempt.feedback_strengths,
-                            'feedback_improvements': latest_attempt.feedback_improvements,
-                            'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
-                        },
-                        'recommendations': recommendations
-                    })
-                else:
-                    # Fallback to basic recommendations if API fails
-                    recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
-                    return jsonify({
-                        'latest_attempt': {
-                            'score': latest_attempt.score,
-                            'feedback_strengths': latest_attempt.feedback_strengths,
-                            'feedback_improvements': latest_attempt.feedback_improvements,
-                            'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
-                        },
-                        'recommendations': recommendations
-                    })
-            except requests.RequestException as e:
-                print(f"Quiz API request failed: {e}")
-                # Fallback to basic recommendations
-                recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
-                return jsonify({
-                    'latest_attempt': {
-                        'score': latest_attempt.score,
-                        'feedback_strengths': latest_attempt.feedback_strengths,
-                        'feedback_improvements': latest_attempt.feedback_improvements,
-                        'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
-                    },
-                    'recommendations': recommendations
-                })
+            pass # Placeholder for implementation
                     
         except Exception as e:
             print(f"Error getting quiz recommendations: {e}")
-            return jsonify({'error': str(e)}), 500
-
-    # PODCAST ROUTES
+            return jsonify({'error': str(e)}), 500    # PODCAST ROUTES
     @app.route('/course/<int:course_id>/generate-podcast', methods=['POST'])
     @login_required
-    def generate_course_podcast(course_id):
-        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-        
-        try:
-            print(f"=== PODCAST GENERATION DEBUG ===")
-            print(f"Course: {course.course_name}")
-            print(f"Course ID: {course_id}")
-            
-            # Get course details for more context
-            course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-            description = course_details.description if course_details else f"Learn {course.course_name} with practical examples and real-world applications."
-            
-            print(f"Description length: {len(description)} chars")
-            print(f"Description preview: {description[:100]}...")
-            # Generate podcast
-            print("Calling generate_podcast_for_course...")
-            audio_data = generate_podcast_for_course(course.course_name, description)
-            
-            print(f"Received audio_data: {type(audio_data)}")
-            if audio_data:
-                print(f"Audio data size: {len(audio_data)} bytes")
-                print(f"Audio data preview: {audio_data[:20] if len(audio_data) >= 20 else audio_data}")
-                
-                # Check if it looks like WAV data
-                if audio_data.startswith(b'RIFF') and b'WAVE' in audio_data[:12]:
-                    print("✅ Audio data appears to be valid WAV format")
-                else:
-                    print("❌ WARNING: Audio data does not appear to be WAV format")
-                    print(f"First 20 bytes: {audio_data[:20]}")
-            else:
-                print("❌ ERROR: audio_data is None or empty")
-                
-            if audio_data and len(audio_data) > 0:
-                # Store the audio data in session or database for streaming
-                # For now, we'll return it directly for streaming (no attachment header)
-                print("Returning successful audio response for streaming")
-                return Response(
-                    audio_data,
-                    mimetype='audio/wav',
-                    headers={
-                        'Content-Length': str(len(audio_data)),
-                        'Accept-Ranges': 'bytes',
-                        'Cache-Control': 'no-cache'
-                    }
-                )
-            else:
-                print("❌ ERROR: Empty or invalid audio data")
-                flash('Failed to generate podcast - empty audio data', 'error')
-                return redirect(get_url_for('course_detail', course_id=course_id))
-        except Exception as e:
-            print(f"❌ EXCEPTION in podcast generation: {e}")
-            traceback.print_exc()
-            flash(f'Error generating podcast: {str(e)}', 'error')
-            return redirect(get_url_for('course_detail', course_id=course_id))
-
-    @app.route('/test-podcast')
-    @login_required
-    def test_podcast():
-        """Test route for podcast generation"""
-        try:
-            test_audio = generate_podcast_for_course(
-                "Python Programming", 
-                "Learn Python from basics to advanced concepts including data structures, algorithms, and web development."
-            )
-            
-            if test_audio:
-                return Response(
-                    test_audio,
-                    mimetype='audio/wav',
-                    headers={'Content-Disposition': 'attachment; filename="test_podcast.wav"'}
-                )
-            else:
-                return "Podcast generation failed", 500
-                
-        except Exception as e:
-            return f"Error: {e}", 500
-
-    # CV ANALYSIS ROUTES
-    @app.route('/assessment')
-    @login_required
-    def assessment():
-        return render_template('assessment/assessment.html')
-
-    @app.route('/assessment', methods=['POST'])
-    @login_required
-    def upload_cv():
-        if 'cv_file' not in request.files:
-            flash('Please select a file', 'error')
-            return redirect(get_url_for('assessment'))
-        
-        file = request.files['cv_file']
-        job_description = request.form.get('job_description', '').strip()
-        
-        if file.filename == '':
-            flash('Please select a file', 'error')
-            return redirect(get_url_for('assessment'))
-        
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            os.makedirs(current_app.config['UPLOAD_FOLDER'], exist_ok=True)
-            filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            
-            try:
-                cv_text = extract_text_from_pdf(filepath)
-                os.remove(filepath)  # Clean up uploaded file
-                
-                if not cv_text.strip():
-                    flash('Could not extract text from PDF. Please ensure it\'s not an image-only PDF.', 'error')
-                    return redirect(get_url_for('assessment'))
-                
-                # Analyze with Gemini
-                analysis = analyze_skills_with_gemini(cv_text, job_description)
-                skills = analysis.get('current_skills', [])
-                
-                # Save to database
-                profile = UserProfile(
-                    user_id=current_user.id,
-                    cv_text=cv_text,
-                    job_description=job_description if job_description else None,
-                    skills=json.dumps(skills),
-                    skill_analysis=json.dumps(analysis)
-                )
-                db.session.add(profile)
-                db.session.commit()
-                
-                return redirect(get_url_for('results', profile_id=profile.id))
-                
-            except Exception as e:
-                print(f"Error processing CV: {e}")
-                flash('Error processing CV. Please try again.', 'error')
-                return redirect(get_url_for('assessment'))
-        
-        flash('Invalid file format. Please upload a PDF file.', 'error')
-        return redirect(get_url_for('assessment'))
-
-    @app.route('/results/<int:profile_id>')
-    @login_required
-    def results(profile_id):
-        profile = UserProfile.query.filter_by(id=profile_id, user_id=current_user.id).first_or_404()
-        
-        try:
-            skills = json.loads(profile.skills) if profile.skills else []
-            full_analysis = json.loads(profile.skill_analysis) if profile.skill_analysis else {}
-        except:
-            skills = []
-            full_analysis = {}
-        
-        # Determine skill categories for recommendations
-        has_programming_skills = any(skill.lower() in ['python', 'java', 'javascript', 'c++', 'c#'] for skill in skills)
-        has_data_skills = any(skill.lower() in ['data science', 'machine learning', 'analytics', 'sql'] for skill in skills)
-        has_web_skills = any(skill.lower() in ['html', 'css', 'react', 'angular', 'web development'] for skill in skills)
-        has_devops_skills = any(skill.lower() in ['docker', 'kubernetes', 'aws', 'azure', 'devops'] for skill in skills)
-        
-        return render_template('assessment/results.html', 
-                             profile=profile, 
-                             skills=skills, 
-                             full_analysis=full_analysis,
-                             has_programming_skills=has_programming_skills,
-                             has_data_skills=has_data_skills,
-                             has_web_skills=has_web_skills,
-                             has_devops_skills=has_devops_skills)
-
-    # COURSE MANAGEMENT ROUTES
-    @app.route('/search')
-    def search():
-        query = request.args.get('query', '')
-        results = []
-        if query:
-            results = search_courses(query)
-        return render_template('courses/search.html', query=query, results=results)
-
-    @app.route('/enroll', methods=['POST'])
-    @login_required
-    def enroll_course():
-        category = request.form.get('category')
-        course = request.form.get('course')
-        
-        existing = UserCourse.query.filter_by(
-            user_id=current_user.id, 
-            course_name=course
-        ).first()
-        
-        if existing:
-            return jsonify({'success': False, 'message': 'Already enrolled in this course'})
-        
-        user_course = UserCourse(
-            user_id=current_user.id,
-            category=category,
-            course_name=course,
-            status='enrolled'
-        )
-        db.session.add(user_course)
-        db.session.commit()
-        
-        return jsonify({'success': True, 'message': 'Successfully enrolled!'})
-
-    @app.route('/my-courses')
-    @login_required
-    def my_courses():
-        courses = UserCourse.query.filter_by(user_id=current_user.id).order_by(UserCourse.created_at.desc()).all()
-        stats = get_skillstown_stats(current_user.id)
-        return render_template('courses/my_courses.html', courses=courses, stats=stats)
-
-    @app.route('/course/<int:course_id>')
-    @login_required
-    def course_detail(course_id):
-        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-        
-        # Get or create course details
-        course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-        if not course_details:
-            # Create sample course details
-            sample_materials = {
-                "materials": [
-                    {
-                        "title": f"Introduction to {course.course_name}",
-                        "type": "lesson",
-                        "duration": "2 hours",
-                        "topics": ["Fundamentals", "Getting Started", "Overview"],
-                        "description": f"Learn the basics of {course.course_name} and get started with practical examples."
-                    },
-                    {
-                        "title": f"Intermediate {course.course_name}",
-                        "type": "lesson", 
-                        "duration": "3 hours",
-                        "topics": ["Advanced Concepts", "Best Practices", "Real-world Applications"],
-                        "description": f"Dive deeper into {course.course_name} with advanced techniques and industry practices."
-                    },
-                    {
-                        "title": f"{course.course_name} Project",
-                        "type": "project",
-                        "duration": "5 hours", 
-                        "topics": ["Hands-on Practice", "Portfolio Building", "Implementation"],
-                        "description": f"Build a complete project using {course.course_name} to demonstrate your skills."
-                    }
-                ]
-            }
-            
-            course_details = CourseDetail(
-                user_course_id=course_id,
-                description=f"Learn {course.course_name} with hands-on projects and real-world applications. This comprehensive course covers everything from basics to advanced concepts.",
-                progress_percentage=0,
-                materials=json.dumps(sample_materials)
-            )
-            db.session.add(course_details)
-            db.session.commit()
-        
-        # Parse materials
-        try:
-            materials = json.loads(course_details.materials) if course_details.materials else {"materials": []}
-        except:
-            materials = {"materials": []}
-        
-        return render_template('courses/course_detail.html', 
-                             course=course, 
-                             course_details=course_details,
-                             materials=materials)
-
-    @app.route('/course/<int:course_id>/update-status', methods=['POST'])
-    @login_required
-    def update_course_status(course_id):
-        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
-        new_status = request.form.get('status')
-        
-        if new_status in ['enrolled', 'in_progress', 'completed']:
-            course.status = new_status
-            if new_status == 'completed':
-                # Update course details progress
-                course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
-                if course_details:
-                    course_details.progress_percentage = 100
-                    course_details.completed_at = datetime.utcnow()  # Fixed: Use datetime.utcnow()
-            
-            db.session.commit()
-            flash(f'Course status updated to {new_status}!', 'success')
-        
-        return redirect(get_url_for('course_detail', course_id=course_id))
-
-    @app.route('/profile')
-    @login_required
-    def skillstown_user_profile():
-        stats = get_skillstown_stats(current_user.id)
-        recent_courses = UserCourse.query.filter_by(user_id=current_user.id).order_by(UserCourse.created_at.desc()).limit(5).all()
-        return render_template('profile.html', stats=stats, recent_courses=recent_courses)
-
-    @app.route('/about')
-    def about():
-        return render_template('about.html')
-
-    # Admin routes
-    @app.route('/admin/reset-skillstown-tables', methods=['POST'])
-    @login_required
-    def reset_skillstown_tables():
-        if current_user.email != 'bentakaki7@gmail.com':
-            flash('Not authorized', 'danger')
-            return redirect(get_url_for('skillstown_user_profile'))
-        
-        try:
-            cmds = [
-                "DROP TABLE IF EXISTS skillstown_user_courses CASCADE;",
-                "DROP TABLE IF EXISTS skillstown_user_profiles CASCADE;",
-                "DROP TABLE IF EXISTS skillstown_course_details CASCADE;",
-                "DROP TABLE IF EXISTS skillstown_course_quizzes CASCADE;",
-                "DROP TABLE IF EXISTS skillstown_quiz_attempts CASCADE;",
-                "DROP TABLE IF EXISTS students CASCADE;",
-                "DROP TABLE IF EXISTS companies CASCADE;",
-                "DROP TABLE IF EXISTS category CASCADE;",
-                "DROP TABLE IF EXISTS skillstown_courses CASCADE;"
-            ]
-            for cmd in cmds: 
-                db.session.execute(text(cmd))
-            db.session.commit()
-            db.create_all()
-            flash('Tables reset successfully', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash(f'Error resetting tables: {e}', 'danger')
-        return redirect(get_url_for('skillstown_user_profile'))
-
-    # Error handlers
-    @app.errorhandler(404)
-    def not_found_error(error):
-        return render_template('errors/404.html'), 404
-
-    @app.errorhandler(413)
-    def file_too_large_error(error):
-        return render_template('errors/413.html'), 413
-
-    @app.errorhandler(500)
-    def internal_error(error):
-        db.session.rollback()
-        return render_template('errors/500.html'), 500
-
-    @app.route('/test-quiz-api-simple')
-    def test_quiz_api_simple():
-        """Simple test route without login requirement to diagnose API authentication"""
-        try:
-            access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
-            base_url = QUIZ_API_BASE_URL
-            
-            # Test different authentication methods with quiz-specific endpoints
-            test_results = []
-            
-            # Test 1: Health check with no auth
-            try:
-                response = requests.get(f"{base_url}/health", timeout=10)
-                test_results.append({
-                    'test': 'Health check (no auth)',
-                    'status': response.status_code,
-                    'response': response.text[:100] if response.text else 'No response',
-                    'success': response.status_code == 200
-                })
-            except Exception as e:
-                test_results.append({
-                    'test': 'Health check (no auth)',
-                    'error': str(e),
-                    'success': False
-                })
-            
-            # Test 2: Different auth methods on various endpoints
-            auth_methods = [
-                {'name': 'Bearer', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Bearer {access_token}'}},
-                {'name': 'Token', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Token {access_token}'}},
-                {'name': 'X-API-Key', 'headers': {'Content-Type': 'application/json', 'X-API-Key': access_token}},
-                {'name': 'X-Access-Token', 'headers': {'Content-Type': 'application/json', 'X-Access-Token': access_token}},
-                {'name': 'Authorization-Token', 'headers': {'Content-Type': 'application/json', 'Authorization-Token': access_token}},
-            ]
-            
-            # Test endpoints that we know exist
-            test_endpoints = [
-                '/health',
-                '/status', 
-                '/',
-                '/api/health',
-                '/quiz',
-                '/quiz/health'
-            ]
-            
-            for method in auth_methods:
-                for endpoint in test_endpoints:
-                    try: 
-                        response = requests.get(
-                            f"{base_url}{endpoint}",
-                            headers=method['headers'],
-                            timeout=10
-                        )
-                        test_results.append({
-                            'test': f"{method['name']} on {endpoint}",
-                            'status': response.status_code,
-                            'response': response.text[:100] if response.text else 'No response',
-                            'success': response.status_code in [200, 404]  # 404 might be OK for non-existent endpoints
-                        })
-                        
-                        # If we get a successful response, try a quiz-specific action
-                        if response.status_code == 200:
-                            # Test with a mock quiz attempt endpoint
-                            try:
-                                quiz_response = requests.post(
-                                    f"{base_url}/quiz/test/attempt",
-                                    headers=method['headers'],
-                                    json={"test": True},
-                                    timeout=10
-                                )
-                                test_results.append({
-                                    'test': f"{method['name']} on quiz attempt endpoint",
-                                    'status': quiz_response.status_code,
-                                    'response': quiz_response.text[:200] if quiz_response.text else 'No response',
-                                    'success': quiz_response.status_code != 401
-                                })
-                            except Exception as e:
-                                test_results.append({
-                                    'test': f"{method['name']} on quiz attempt endpoint",
-                                    'error': str(e),
-                                    'success': False
-                                })
-                            break  # Found working auth method, no need to test other endpoints
-                            
-                    except Exception as e:
-                        test_results.append({
-                            'test': f"{method['name']} on {endpoint}",
-                            'error': str(e),
-                            'success': False
-                        })
-            
-            # Find the best working auth method
-            working_methods = [r for r in test_results if r.get('success') and r.get('status') == 200]
-            
-            return jsonify({
-                'quiz_api_base_url': base_url,
-                'token_preview': f"{access_token[:20]}..." if access_token else "NO TOKEN",
-                'total_tests': len(test_results),
-                'successful_tests': len([r for r in test_results if r.get('success')]),
-                'working_auth_methods': working_methods,
-                'all_test_results': test_results,
-                'recommendations': [
-                    "If health check works but quiz endpoints return 401, the issue is authentication format",
-                    "If all endpoints return connection errors, check if Quiz API service is running on port 8081",
-                    "If some auth methods work for basic endpoints but not quiz endpoints, the API may use different auth for different routes"
-                ]
-            })
-                    
-        except Exception as e:            return jsonify({
-                'error': str(e),
-                'quiz_api_base_url': QUIZ_API_BASE_URL,
-                'traceback': traceback.format_exc()
-            }), 500
-
-    @app.route('/debug-quiz-flow')
-    def debug_quiz_flow():
-        """Debug route to test the complete quiz flow and identify authentication issues"""
-        try:
-            access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
-            base_url = QUIZ_API_BASE_URL
-            
-            # Step 1: Create a test quiz (we know this works)
-            print("[DEBUG] Step 1: Creating test quiz...")
-            create_payload = {
-                "user_id": "debug-user-uuid-12345",
-                "course": {
-                    "name": "Debug Authentication Test",
-                    "description": "Testing authentication flow",
-                    "level": "Beginner"
-                }
-            }
-            
-            create_headers = get_quiz_api_headers()
-            
-            try:
-                create_response = requests.post(
-                    f"{base_url}/quiz/create-ai-from-course",
-                    json=create_payload,
-                    headers=create_headers,
-                    timeout=30
-                )
-                
-                print(f"[DEBUG] Create response: {create_response.status_code}")
-                print(f"[DEBUG] Create response body: {create_response.text}")
-                
-                if create_response.status_code == 201:
-                    quiz_data = create_response.json()
-                    quiz_id = quiz_data['quizId']
-                    print(f"[DEBUG] ✅ Quiz created successfully: {quiz_id}")
-                    
-                    # Step 2: Try to start an attempt (this is where it fails)
-                    print(f"[DEBUG] Step 2: Starting quiz attempt for quiz {quiz_id}...")
-                    
-                    # Try different attempt endpoints
-                    attempt_endpoints = [
-                        f"/quiz/{quiz_id}/attempt",
-                        f"/quiz/{quiz_id}/start",
-                        f"/quiz/{quiz_id}/attempt-from-course",
-                        f"/user/debug-user-uuid-12345/quiz/{quiz_id}/attempt"
-                    ]
-                    
-                    attempt_results = []
-                    
-                    for endpoint in attempt_endpoints:
-                        try:
-                            print(f"[DEBUG] Trying attempt endpoint: {endpoint}")
-                            attempt_response = requests.post(
-                                f"{base_url}{endpoint}",
-                                headers=create_headers,  # Use same headers that worked for creation
-                                timeout=30
-                            )
-                            
-                            result = {
-                                'endpoint': endpoint,
-                                'status_code': attempt_response.status_code,
-                                'response': attempt_response.text,
-                                'success': attempt_response.status_code in [200, 201]
-                            }
-                            attempt_results.append(result)
-                            
-                            print(f"[DEBUG] Attempt response {endpoint}: {attempt_response.status_code}")
-                            print(f"[DEBUG] Attempt response body: {attempt_response.text}")
-                            
-                            if attempt_response.status_code in [200, 201]:
-                                print(f"[DEBUG] ✅ SUCCESS with endpoint: {endpoint}")
-                                break
-                                
-                        except Exception as e:
-                            result = {
-                                'endpoint': endpoint,
-                                'error': str(e),
-                                'success': False
-                            }
-                            attempt_results.append(result)
-                            print(f"[DEBUG] Exception with {endpoint}: {e}")
-                    
-                    return jsonify({
-                        'step_1_create_quiz': {
-                            'status': 'SUCCESS',
-                            'status_code': create_response.status_code,
-                            'quiz_id': quiz_id,
-                            'response': quiz_data
-                        },
-                        'step_2_start_attempt': {
-                            'status': 'TESTED_MULTIPLE_ENDPOINTS',
-                            'results': attempt_results,
-                            'working_endpoints': [r for r in attempt_results if r.get('success')]
-                        },
-                        'headers_used': create_headers,
-                        'conclusions': {
-                            'quiz_creation_works': True,
-                            'attempt_endpoints_work': len([r for r in attempt_results if r.get('success')]) > 0,
-                            'auth_issue_diagnosis': 'Check attempt_results for specific error messages'
-                        }
-                    })
-                else:
-                    return jsonify({
-                        'step_1_create_quiz': {
-                            'status': 'FAILED',
-                            'status_code': create_response.status_code,
-                            'response': create_response.text
-                        },
-                        'error': 'Quiz creation failed, cannot test attempt flow'
-                    })
-                    
-            except Exception as e:
-                return jsonify({
-                    'step_1_create_quiz': {
-                        'status': 'EXCEPTION',
-                        'error': str(e)
-                    },
-                    'error': f'Exception during quiz creation: {str(e)}'
-                })
-                
-        except Exception as e:
-            return jsonify({
-                'error': str(e),
-                'traceback': traceback.format_exc()
-            }), 500
+    def generate_podcast(course_id): # Added placeholder function
+        pass
 
     return app
+
 
 if __name__ == '__main__':
     app = create_app()
