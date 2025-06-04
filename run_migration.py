@@ -1,186 +1,241 @@
 #!/usr/bin/env python3
 """
-Run this script to fix the database schema for SkillsTown
+Fixed database migration script for PostgreSQL
+This will properly add the quiz_user_uuid column and create quiz tables
 """
 
 import os
 import sys
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
-# Add the project directory to Python path
-project_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_dir)
+def get_database_url():
+    """Get database URL from environment"""
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url and db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://')
+    return db_url or 'sqlite:///skillstown.db'
 
-def run_migration():
-    """Run the database migration within Flask app context"""
-    from app import create_app
+def run_quiz_migration():
+    """Run the quiz integration database migration"""
     
-    app = create_app()
+    print("🗄️  Running Quiz Integration Database Migration...")
+    print("=" * 50)
     
-    with app.app_context():
-        from app import db
-        
-        print("Running SkillsTown database migration...")
-        
-        try:
-            # Create all tables first
-            db.create_all()
-            print("✓ Created/verified all tables")
-            
-            # Check if job_description column exists
-            result = db.session.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name='skillstown_user_profiles' 
-                AND column_name='job_description'
-            """))
-            
-            if not result.fetchone():
-                print("Adding job_description column...")
-                try:
-                    # For PostgreSQL
-                    db.session.execute(text("""
-                        ALTER TABLE skillstown_user_profiles 
-                        ADD COLUMN job_description TEXT
-                    """))
-                    db.session.commit()
-                    print("✓ Successfully added job_description column")
-                except Exception as e:
-                    print(f"PostgreSQL failed, trying SQLite approach: {e}")
-                    db.session.rollback()
-                    
-                    # For SQLite - recreate table approach
-                    try:
-                        # Check if we're using SQLite
-                        db.session.execute(text("SELECT sqlite_version()"))
-                        
-                        print("Detected SQLite - using recreate approach...")
-                        
-                        # Create new table with correct structure
-                        db.session.execute(text("""
-                            CREATE TABLE skillstown_user_profiles_new (
-                                id INTEGER PRIMARY KEY,
-                                user_id INTEGER NOT NULL,
-                                cv_text TEXT,
-                                job_description TEXT,
-                                skills TEXT,
-                                skill_analysis TEXT,
-                                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                            )
-                        """))
-                        
-                        # Copy existing data
-                        db.session.execute(text("""
-                            INSERT INTO skillstown_user_profiles_new 
-                            (id, user_id, cv_text, skills, skill_analysis, uploaded_at)
-                            SELECT id, user_id, cv_text, skills, skill_analysis, uploaded_at
-                            FROM skillstown_user_profiles
-                        """))
-                        
-                        # Drop old table and rename new one
-                        db.session.execute(text("DROP TABLE skillstown_user_profiles"))
-                        db.session.execute(text("ALTER TABLE skillstown_user_profiles_new RENAME TO skillstown_user_profiles"))
-                        
-                        db.session.commit()
-                        print("✓ Successfully recreated table with job_description column")
-                        
-                    except Exception as sqlite_error:
-                        print(f"SQLite approach also failed: {sqlite_error}")
-                        db.session.rollback()
-                        
-                        # Last resort - just recreate all tables
-                        print("Using last resort - recreating all SkillsTown tables...")
-                        db.session.execute(text("DROP TABLE IF EXISTS skillstown_user_profiles CASCADE"))
-                        db.session.execute(text("DROP TABLE IF EXISTS skillstown_user_courses CASCADE"))
-                        db.session.commit()
-                        
-                        db.create_all()
-                        print("✓ Recreated all tables from scratch")
-            else:
-                print("✓ job_description column already exists")
-            
-            print("\n🎉 Migration completed successfully!")
-            print("Your SkillsTown application should now work properly.")
-            
-        except Exception as e:
-            print(f"❌ Migration failed: {e}")
-            db.session.rollback()
-            return False
-            
-        return True
-
-def column_exists(db, table_name, column_name):
-    """Check if a column exists in a table (works for both SQLite and PostgreSQL)"""
+    db_url = get_database_url()
+    print(f"Database URL: {db_url}")
+    
+    engine = create_engine(db_url)
+    
     try:
-        # Try SQLite approach first
-        result = db.session.execute(text(f"PRAGMA table_info({table_name})"))
-        columns = [row[1] for row in result.fetchall()]
-        return column_name in columns
-    except:
-        try:
-            # PostgreSQL approach
-            result = db.session.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = :table_name 
-                AND column_name = :column_name
-            """), {"table_name": table_name, "column_name": column_name})
-            return result.fetchone() is not None
-        except:
-            return False
+        with engine.connect() as conn:
+            # Start transaction
+            trans = conn.begin()
+            
+            try:
+                # Step 1: Check if quiz_user_uuid column exists
+                print("📝 Checking if quiz_user_uuid column exists...")
+                
+                if 'postgresql' in db_url:
+                    # PostgreSQL
+                    result = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='students' 
+                        AND column_name='quiz_user_uuid'
+                    """))
+                else:
+                    # SQLite
+                    result = conn.execute(text("PRAGMA table_info(students)"))
+                
+                column_exists = result.fetchone() is not None
+                
+                if not column_exists:
+                    print("➕ Adding quiz_user_uuid column to students table...")
+                    
+                    if 'postgresql' in db_url:
+                        # PostgreSQL syntax
+                        conn.execute(text("""
+                            ALTER TABLE students 
+                            ADD COLUMN quiz_user_uuid VARCHAR(36)
+                        """))
+                        
+                        # Add unique constraint
+                        conn.execute(text("""
+                            ALTER TABLE students 
+                            ADD CONSTRAINT students_quiz_user_uuid_unique 
+                            UNIQUE (quiz_user_uuid)
+                        """))
+                    else:
+                        # SQLite syntax
+                        conn.execute(text("""
+                            ALTER TABLE students 
+                            ADD COLUMN quiz_user_uuid TEXT UNIQUE
+                        """))
+                    
+                    print("✅ Successfully added quiz_user_uuid column")
+                else:
+                    print("✅ quiz_user_uuid column already exists")
+                
+                # Step 2: Create CourseQuiz table
+                print("📝 Creating skillstown_course_quizzes table...")
+                
+                if 'postgresql' in db_url:
+                    # PostgreSQL syntax
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS skillstown_course_quizzes (
+                            id SERIAL PRIMARY KEY,
+                            user_course_id INTEGER NOT NULL,
+                            quiz_api_id VARCHAR(100) NOT NULL,
+                            quiz_title VARCHAR(255),
+                            quiz_description TEXT,
+                            questions_count INTEGER,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_course_id) REFERENCES skillstown_user_courses(id) ON DELETE CASCADE
+                        )
+                    """))
+                else:
+                    # SQLite syntax
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS skillstown_course_quizzes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_course_id INTEGER NOT NULL,
+                            quiz_api_id VARCHAR(100) NOT NULL,
+                            quiz_title VARCHAR(255),
+                            quiz_description TEXT,
+                            questions_count INTEGER,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_course_id) REFERENCES skillstown_user_courses(id) ON DELETE CASCADE
+                        )
+                    """))
+                
+                print("✅ Successfully created skillstown_course_quizzes table")
+                
+                # Step 3: Create CourseQuizAttempt table
+                print("📝 Creating skillstown_quiz_attempts table...")
+                
+                if 'postgresql' in db_url:
+                    # PostgreSQL syntax
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS skillstown_quiz_attempts (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR(36) NOT NULL,
+                            course_quiz_id INTEGER NOT NULL,
+                            attempt_api_id VARCHAR(100) NOT NULL,
+                            score INTEGER,
+                            total_questions INTEGER,
+                            correct_answers INTEGER,
+                            feedback_strengths TEXT,
+                            feedback_improvements TEXT,
+                            user_answers TEXT,
+                            completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE,
+                            FOREIGN KEY (course_quiz_id) REFERENCES skillstown_course_quizzes(id) ON DELETE CASCADE
+                        )
+                    """))
+                else:
+                    # SQLite syntax
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS skillstown_quiz_attempts (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id VARCHAR(36) NOT NULL,
+                            course_quiz_id INTEGER NOT NULL,
+                            attempt_api_id VARCHAR(100) NOT NULL,
+                            score INTEGER,
+                            total_questions INTEGER,
+                            correct_answers INTEGER,
+                            feedback_strengths TEXT,
+                            feedback_improvements TEXT,
+                            user_answers TEXT,
+                            completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE,
+                            FOREIGN KEY (course_quiz_id) REFERENCES skillstown_course_quizzes(id) ON DELETE CASCADE
+                        )
+                    """))
+                
+                print("✅ Successfully created skillstown_quiz_attempts table")
+                
+                # Commit the transaction
+                trans.commit()
+                print("\n🎉 Quiz integration migration completed successfully!")
+                print("Your SkillsTown application now supports AI quiz generation and assessment.")
+                
+                return True
+                
+            except Exception as e:
+                trans.rollback()
+                print(f"❌ Migration failed: {e}")
+                return False
+                
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        return False
 
-def add_column_if_missing(db, table_name, column_name, column_type="TEXT"):
-    """Add a column to a table if it doesn't exist"""
-    if not column_exists(db, table_name, column_name):
-        print(f"Adding {column_name} column to {table_name}...")
-        try:
-            db.session.execute(text(f"""
-                ALTER TABLE {table_name} 
-                ADD COLUMN {column_name} {column_type}
-            """))
-            db.session.commit()
-            print(f"✓ Successfully added {column_name} column")
+def test_migration():
+    """Test if the migration was successful"""
+    print("\n🔍 Testing migration...")
+    
+    db_url = get_database_url()
+    engine = create_engine(db_url)
+    
+    try:
+        with engine.connect() as conn:
+            # Test if tables exist and have correct structure
+            tables_to_check = [
+                'students',
+                'skillstown_course_quizzes', 
+                'skillstown_quiz_attempts'
+            ]
+            
+            for table in tables_to_check:
+                try:
+                    result = conn.execute(text(f"SELECT COUNT(*) FROM {table} LIMIT 1"))
+                    print(f"✅ {table} table exists and is accessible")
+                except Exception as e:
+                    print(f"❌ {table} table issue: {e}")
+                    return False
+            
+            # Test if quiz_user_uuid column exists in students
+            try:
+                if 'postgresql' in db_url:
+                    result = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name='students' 
+                        AND column_name='quiz_user_uuid'
+                    """))
+                else:
+                    result = conn.execute(text("PRAGMA table_info(students)"))
+                    columns = [row[1] for row in result.fetchall()]
+                    result = 'quiz_user_uuid' in columns
+                
+                if result:
+                    print("✅ quiz_user_uuid column exists in students table")
+                else:
+                    print("❌ quiz_user_uuid column missing from students table")
+                    return False
+                    
+            except Exception as e:
+                print(f"❌ Error checking quiz_user_uuid column: {e}")
+                return False
+            
+            print("✅ All migration tests passed!")
             return True
-        except Exception as e:
-            print(f"Error adding {column_name} column: {e}")
-            db.session.rollback()
-            return False
-    else:
-        print(f"✓ {column_name} column already exists in {table_name}")
-        return True
+            
+    except Exception as e:
+        print(f"❌ Migration test failed: {e}")
+        return False
 
-# Usage in your migration script:
-def run_migration():
-    """Run the database migration within Flask app context"""
-    from app import create_app
-    
-    app = create_app()
-    
-    with app.app_context():
-        from app import db
-        
-        print("Running SkillsTown database migration...")
-        
-        try:
-            # Create all tables first
-            db.create_all()
-            print("✓ Created/verified all tables")
-            
-            # Add missing columns
-            add_column_if_missing(db, "skillstown_user_profiles", "job_description")
-            add_column_if_missing(db, "skillstown_course_details", "quiz_results")
-            
-            print("\n🎉 Migration completed successfully!")
-            print("Your SkillsTown application should now work properly.")
-            
-        except Exception as e:
-            print(f"❌ Migration failed: {e}")
-            db.session.rollback()
-            return False
-            
-        return True       
+def main():
+    """Main migration function"""
+    if run_quiz_migration():
+        if test_migration():
+            print("\n🚀 Ready to start your SkillsTown app!")
+            print("Run: python app.py")
+        else:
+            print("\n⚠️  Migration completed but tests failed")
+    else:
+        print("\n❌ Migration failed. Please check the errors above.")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    success = run_migration()
-    if not success:
-        sys.exit(1)
+    main()

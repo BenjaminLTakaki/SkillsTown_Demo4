@@ -1,11 +1,11 @@
 import os
-import datetime
 import json
 import re
 import sys
 import traceback
 import PyPDF2
 import requests
+from datetime import datetime  # Fixed: Use this instead of import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, current_app, Response
 from flask_login import login_required, current_user, LoginManager, login_user, logout_user, UserMixin
 from werkzeug.utils import secure_filename
@@ -16,6 +16,30 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from local_config import NARRETEX_API_URL, check_environment, LOCAL_DATABASE_URL, DEVELOPMENT_MODE
 
+# Production detection
+is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') == 'production'
+
+# API configurations
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent"
+QUIZ_API_BASE_URL = os.environ.get('QUIZ_API_BASE_URL', 'http://localhost:8081')
+QUIZ_API_ACCESS_TOKEN = os.environ.get('QUIZ_API_ACCESS_TOKEN', 'kJ9mP2vL8xQ5nR3tY7wZ6cB4dF2gH8jK9lM3nP5qR7sT2uV6wX8yZ9aB3cD5eF7gH2iJ4kL6mN8oP9qR2sT4uV6wX8yZ1aB3cD5eF7gH9iJ2kL')
+
+def get_url_for(*args, **kwargs):
+    url = url_for(*args, **kwargs)
+    if is_production and not url.startswith('/skillstown'):
+        url = f"/skillstown{url}"
+    return url
+
+# Import models after db is defined
+from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, db
+
+def get_quiz_api_headers():
+    """Get headers for quiz API requests"""
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {QUIZ_API_ACCESS_TOKEN}'
+    }
 
 def generate_podcast_for_course(course_name, course_description):
     """
@@ -126,23 +150,6 @@ def format_course_details(course_details):
         formatted += "\n"
     
     return formatted
-
-
-# Production detection
-is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') == 'production'
-
-# Gemini API configuration
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent"
-
-def get_url_for(*args, **kwargs):
-    url = url_for(*args, **kwargs)
-    if is_production and not url.startswith('/skillstown'):
-        url = f"/skillstown{url}"
-    return url
-
-# Import models after db is defined
-from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, db
 
 # Auth setup
 def init_auth(app, get_url_for_func, get_stats_func):
@@ -284,7 +291,7 @@ def create_app(config_name=None):
     @app.context_processor
     def inject(): 
         return {
-            'current_year': datetime.datetime.now().year,
+            'current_year': datetime.now().year,  # Fixed: Use datetime.now() instead of datetime.now()
             'get_url_for': get_url_for
         }
 
@@ -376,6 +383,109 @@ def create_app(config_name=None):
             print(f"Error reading PDF: {e}")
         return txt.strip()
 
+    # Helper functions for quiz recommendations
+    def generate_course_recommendations_from_quiz(attempt, api_attempts):
+        """Generate course recommendations based on quiz performance"""
+        score = attempt.score or 0
+        catalog = load_course_catalog()
+        
+        recommendations = {
+            'remedial_courses': [],
+            'next_courses': [],
+            'advanced_courses': [],
+            'specific_advice': ''
+        }
+        
+        # Determine recommendations based on score
+        if score < 60:
+            # Low score - recommend foundational courses
+            recommendations['specific_advice'] = "Focus on strengthening your foundation in this subject area. The recommended courses will help you build core competencies."
+            recommendations['remedial_courses'] = get_foundational_courses(catalog)
+        elif score < 80:
+            # Medium score - recommend intermediate courses
+            recommendations['specific_advice'] = "You have a good foundation! Continue building your skills with these intermediate courses."
+            recommendations['next_courses'] = get_intermediate_courses(catalog)
+        else:
+            # High score - recommend advanced courses
+            recommendations['specific_advice'] = "Excellent work! You're ready for advanced topics that will set you apart."
+            recommendations['advanced_courses'] = get_advanced_courses(catalog)
+        
+        return recommendations
+
+    def generate_basic_recommendations_from_score(score):
+        """Generate basic recommendations when API is unavailable"""
+        catalog = load_course_catalog()
+        
+        recommendations = {
+            'remedial_courses': [],
+            'next_courses': [],
+            'advanced_courses': [],
+            'specific_advice': ''
+        }
+        
+        if score < 60:
+            recommendations['specific_advice'] = "Focus on foundational skills to improve your understanding."
+            recommendations['remedial_courses'] = get_foundational_courses(catalog)
+        elif score < 80:
+            recommendations['specific_advice'] = "Great progress! Continue with intermediate level courses."
+            recommendations['next_courses'] = get_intermediate_courses(catalog)
+        else:
+            recommendations['specific_advice'] = "Excellent! You're ready for advanced challenges."
+            recommendations['advanced_courses'] = get_advanced_courses(catalog)
+        
+        return recommendations
+
+    def get_foundational_courses(catalog):
+        """Get beginner/foundational courses from catalog"""
+        courses = []
+        for category in catalog.get('categories', []):
+            for course in category.get('courses', []):
+                if course.get('level', '').lower() in ['beginner', 'basic', 'foundational']:
+                    courses.append({
+                        'name': course['name'],
+                        'category': category['name'],
+                        'reason': f"Strengthen foundation in {category['name'].lower()}"
+                    })
+                    if len(courses) >= 4:
+                        break
+            if len(courses) >= 4:
+                break
+        return courses
+
+    def get_intermediate_courses(catalog):
+        """Get intermediate courses from catalog"""
+        courses = []
+        for category in catalog.get('categories', []):
+            for course in category.get('courses', []):
+                if course.get('level', '').lower() in ['intermediate', 'medium']:
+                    courses.append({
+                        'name': course['name'],
+                        'category': category['name'],
+                        'reason': f"Build expertise in {category['name'].lower()}"
+                    })
+                    if len(courses) >= 4:
+                        break
+            if len(courses) >= 4:
+                break
+        return courses
+
+    def get_advanced_courses(catalog):
+        """Get advanced courses from catalog"""
+        courses = []
+        for category in catalog.get('categories', []):
+            for course in category.get('courses', []):
+                if course.get('level', '').lower() in ['advanced', 'expert', 'professional']:
+                    courses.append({
+                        'name': course['name'],
+                        'category': category['name'],
+                        'reason': f"Master advanced {category['name'].lower()} concepts"
+                    })
+                    if len(courses) >= 4:
+                        break
+            if len(courses) >= 4:
+                break
+        return courses
+
     # Routes
     @app.route('/')
     def index():
@@ -396,6 +506,320 @@ def create_app(config_name=None):
         
         return render_template('auth/login.html')
 
+    @app.route('/register', methods=['GET', 'POST'])
+    def register():
+        if request.method == 'POST':
+            name = request.form.get('name')
+            email = request.form.get('email')
+            password = request.form.get('password')
+            
+            if Student.query.filter_by(email=email).first():
+                flash('Email already exists', 'error')
+                return render_template('auth/register.html')
+            
+            user = Student(
+                name=name,
+                email=email,
+                username=email,
+                password_hash=generate_password_hash(password)
+            )
+            db.session.add(user)
+            db.session.commit()
+            
+            login_user(user)
+            flash('Registration successful!', 'success')
+            return redirect(get_url_for('index'))
+        
+        return render_template('auth/register.html')
+
+    @app.route('/logout')
+    def logout():
+        logout_user()
+        return redirect(get_url_for('index'))
+
+    # QUIZ ROUTES - NEW INTEGRATION
+    @app.route('/course/<int:course_id>/generate-quiz', methods=['POST'])
+    @login_required
+    def generate_quiz(course_id):
+        """Generate a new quiz for a course"""
+        try:
+            # Get the course from UserCourse table
+            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
+            
+            # Get or create quiz UUID for the user
+            quiz_user_uuid = current_user.get_quiz_uuid()
+            
+            # Get course details to send to quiz API
+            course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
+            description = course_details.description if course_details else f"Learn {course.course_name} with practical examples and real-world applications."
+            
+            # Get course info from catalog for more details
+            catalog_info = get_detailed_course_info(course.course_name)
+            
+            # Prepare the request payload for quiz API
+            quiz_payload = {
+                "user_id": quiz_user_uuid,
+                "course": {
+                    "name": course.course_name,
+                    "description": description,
+                    "duration": catalog_info.get('duration', '8 weeks'),
+                    "level": catalog_info.get('level', 'Intermediate'),
+                    "skills": catalog_info.get('skills', []),
+                    "projects": catalog_info.get('projects', []),
+                    "career_paths": catalog_info.get('career_paths', [])
+                }
+            }
+            
+            # Call the quiz API to create quiz
+            response = requests.post(
+                f"{QUIZ_API_BASE_URL}/quiz/create-ai-from-course",
+                json=quiz_payload,
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                quiz_data = response.json()
+                
+                # Save quiz info to our database
+                course_quiz = CourseQuiz(
+                    user_course_id=course_id,
+                    quiz_api_id=quiz_data['quizId'],
+                    quiz_title=quiz_data['title'],
+                    quiz_description=quiz_data['description'],
+                    questions_count=quiz_data['questionsCount']
+                )
+                db.session.add(course_quiz)
+                db.session.commit()
+                
+                return jsonify({
+                    'success': True,
+                    'quiz_id': quiz_data['quizId'],
+                    'title': quiz_data['title'],
+                    'description': quiz_data['description'],
+                    'questions_count': quiz_data['questionsCount'],
+                    'message': 'Quiz generated successfully!'
+                })
+            else:
+                print(f"Quiz API error: {response.status_code} - {response.text}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to generate quiz: {response.status_code}'
+                }), 500
+                
+        except Exception as e:
+            print(f"Error generating quiz: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    @app.route('/quiz/<quiz_id>/details')
+    @login_required
+    def get_quiz_details(quiz_id):
+        """Get quiz details for taking the quiz"""
+        try:
+            # Verify user owns this quiz
+            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first_or_404()
+            user_course = UserCourse.query.filter_by(
+                id=course_quiz.user_course_id, 
+                user_id=current_user.id
+            ).first_or_404()
+            
+            # Get quiz details from API
+            response = requests.get(
+                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                return jsonify({'error': 'Failed to fetch quiz details'}), 500
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
+    @login_required  
+    def start_quiz_attempt(quiz_id):
+        """Start a new quiz attempt"""
+        try:
+            # Verify user owns this quiz
+            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first_or_404()
+            user_course = UserCourse.query.filter_by(
+                id=course_quiz.user_course_id,
+                user_id=current_user.id
+            ).first_or_404()
+            
+            # Start attempt via API
+            response = requests.post(
+                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/attempt-from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                attempt_data = response.json()
+                
+                # Save attempt to our database
+                quiz_attempt = CourseQuizAttempt(
+                    user_id=current_user.id,
+                    course_quiz_id=course_quiz.id,
+                    attempt_api_id=attempt_data['attemptId']
+                )
+                db.session.add(quiz_attempt)
+                db.session.commit()
+                
+                return jsonify(attempt_data)
+            else:
+                return jsonify({'error': 'Failed to start quiz attempt'}), 500
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/quiz/attempt/<attempt_id>/complete', methods=['POST'])
+    @login_required
+    def complete_quiz_attempt(attempt_id):
+        """Complete a quiz attempt with user answers"""
+        try:
+            # Get the attempt from our database
+            quiz_attempt = CourseQuizAttempt.query.filter_by(
+                attempt_api_id=attempt_id,
+                user_id=current_user.id
+            ).first_or_404()
+            
+            # Get user answers from request
+            user_answers = request.json
+            
+            # Submit answers to quiz API
+            response = requests.post(
+                f"{QUIZ_API_BASE_URL}/quiz/attempt/{attempt_id}/complete-from-course",
+                json=user_answers,
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result_data = response.json()
+                
+                # Update our attempt record with results
+                if 'results' in result_data:
+                    results = result_data['results']
+                    quiz_attempt.score = results.get('score', 0)
+                    quiz_attempt.total_questions = results.get('totalQuestions', 0)
+                    quiz_attempt.correct_answers = results.get('correct', 0)
+                    quiz_attempt.feedback_strengths = results.get('strengths', '')
+                    quiz_attempt.feedback_improvements = results.get('improvements', '')
+                    quiz_attempt.user_answers = json.dumps(user_answers)
+                    quiz_attempt.completed_at = datetime.utcnow()  # Fixed: Use datetime.utcnow()
+                    
+                    db.session.commit()
+                
+                return jsonify(result_data)
+            else:
+                return jsonify({'error': 'Failed to complete quiz'}), 500
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/course/<int:course_id>/quiz-attempts')
+    @login_required
+    def get_course_quiz_attempts(course_id):
+        """Get all quiz attempts for a course"""
+        try:
+            # Verify user owns this course
+            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
+            
+            # Get all quiz attempts for this course
+            quiz_attempts = db.session.query(CourseQuizAttempt).join(
+                CourseQuiz, CourseQuizAttempt.course_quiz_id == CourseQuiz.id
+            ).filter(
+                CourseQuiz.user_course_id == course_id,
+                CourseQuizAttempt.user_id == current_user.id
+            ).order_by(CourseQuizAttempt.completed_at.desc()).all()
+            
+            attempts_data = []
+            for attempt in quiz_attempts:
+                attempts_data.append({
+                    'id': attempt.id,
+                    'attempt_api_id': attempt.attempt_api_id,
+                    'score': attempt.score,
+                    'total_questions': attempt.total_questions,
+                    'correct_answers': attempt.correct_answers,
+                    'feedback_strengths': attempt.feedback_strengths,
+                    'feedback_improvements': attempt.feedback_improvements,
+                    'completed_at': attempt.completed_at.isoformat() if attempt.completed_at else None,
+                    'quiz_title': attempt.course_quiz.quiz_title
+                })
+            
+            return jsonify({'attempts': attempts_data})
+            
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/course/<int:course_id>/quiz-recommendations')
+    @login_required
+    def get_quiz_recommendations(course_id):
+        """Get AI-generated course recommendations based on quiz performance"""
+        try:
+            # Get the latest quiz attempt for this course
+            latest_attempt = db.session.query(CourseQuizAttempt).join(
+                CourseQuiz, CourseQuizAttempt.course_quiz_id == CourseQuiz.id
+            ).filter(
+                CourseQuiz.user_course_id == course_id,
+                CourseQuizAttempt.user_id == current_user.id,
+                CourseQuizAttempt.score.isnot(None)
+            ).order_by(CourseQuizAttempt.completed_at.desc()).first()
+            
+            if not latest_attempt:
+                return jsonify({'error': 'No completed quiz attempts found'}), 404
+            
+            # Get user's quiz UUID for API calls
+            quiz_user_uuid = current_user.get_quiz_uuid()
+            
+            # Call quiz API to get detailed results and recommendations
+            response = requests.get(
+                f"{QUIZ_API_BASE_URL}/user/{quiz_user_uuid}/quiz-attempts-from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                attempts_data = response.json()
+                
+                # Find the matching attempt and generate recommendations
+                recommendations = generate_course_recommendations_from_quiz(
+                    latest_attempt, attempts_data.get('attempts', [])
+                )
+                
+                return jsonify({
+                    'latest_attempt': {
+                        'score': latest_attempt.score,
+                        'feedback_strengths': latest_attempt.feedback_strengths,
+                        'feedback_improvements': latest_attempt.feedback_improvements,
+                        'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
+                    },
+                    'recommendations': recommendations
+                })
+            else:
+                # Fallback to basic recommendations if API fails
+                recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
+                return jsonify({
+                    'latest_attempt': {
+                        'score': latest_attempt.score,
+                        'feedback_strengths': latest_attempt.feedback_strengths,
+                        'feedback_improvements': latest_attempt.feedback_improvements,
+                        'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
+                    },
+                    'recommendations': recommendations
+                })
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    # PODCAST ROUTES
     @app.route('/course/<int:course_id>/generate-podcast', methods=['POST'])
     @login_required
     def generate_course_podcast(course_id):
@@ -412,7 +836,7 @@ def create_app(config_name=None):
             
             print(f"Description length: {len(description)} chars")
             print(f"Description preview: {description[:100]}...")
-              # Generate podcast
+            # Generate podcast
             print("Calling generate_podcast_for_course...")
             audio_data = generate_podcast_for_course(course.course_name, description)
             
@@ -453,7 +877,6 @@ def create_app(config_name=None):
             flash(f'Error generating podcast: {str(e)}', 'error')
             return redirect(get_url_for('course_detail', course_id=course_id))
 
-    # Add route for testing podcast generation
     @app.route('/test-podcast')
     @login_required
     def test_podcast():
@@ -475,37 +898,8 @@ def create_app(config_name=None):
                 
         except Exception as e:
             return f"Error: {e}", 500
-    @app.route('/register', methods=['GET', 'POST'])
-    def register():
-        if request.method == 'POST':
-            name = request.form.get('name')
-            email = request.form.get('email')
-            password = request.form.get('password')
-            
-            if Student.query.filter_by(email=email).first():
-                flash('Email already exists', 'error')
-                return render_template('auth/register.html')
-            
-            user = Student(
-                name=name,
-                email=email,
-                username=email,
-                password_hash=generate_password_hash(password)
-            )
-            db.session.add(user)
-            db.session.commit()
-            
-            login_user(user)
-            flash('Registration successful!', 'success')
-            return redirect(get_url_for('index'))
-        
-        return render_template('auth/register.html')
 
-    @app.route('/logout')
-    def logout():
-        logout_user()
-        return redirect(get_url_for('index'))
-
+    # CV ANALYSIS ROUTES
     @app.route('/assessment')
     @login_required
     def assessment():
@@ -591,6 +985,7 @@ def create_app(config_name=None):
                              has_web_skills=has_web_skills,
                              has_devops_skills=has_devops_skills)
 
+    # COURSE MANAGEMENT ROUTES
     @app.route('/search')
     def search():
         query = request.args.get('query', '')
@@ -699,7 +1094,7 @@ def create_app(config_name=None):
                 course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
                 if course_details:
                     course_details.progress_percentage = 100
-                    course_details.completed_at = datetime.datetime.utcnow()
+                    course_details.completed_at = datetime.utcnow()  # Fixed: Use datetime.utcnow()
             
             db.session.commit()
             flash(f'Course status updated to {new_status}!', 'success')
@@ -730,6 +1125,8 @@ def create_app(config_name=None):
                 "DROP TABLE IF EXISTS skillstown_user_courses CASCADE;",
                 "DROP TABLE IF EXISTS skillstown_user_profiles CASCADE;",
                 "DROP TABLE IF EXISTS skillstown_course_details CASCADE;",
+                "DROP TABLE IF EXISTS skillstown_course_quizzes CASCADE;",
+                "DROP TABLE IF EXISTS skillstown_quiz_attempts CASCADE;",
                 "DROP TABLE IF EXISTS students CASCADE;",
                 "DROP TABLE IF EXISTS companies CASCADE;",
                 "DROP TABLE IF EXISTS category CASCADE;",

@@ -34,12 +34,22 @@ class Student(db.Model, UserMixin):
     is_active = db.Column(db.Boolean, default=True)
     date_joined = db.Column(db.DateTime, default=db.func.current_timestamp())
     
+    # NEW: Quiz system UUID for integration with external quiz API
+    quiz_user_uuid = db.Column(db.String(36), nullable=True, unique=True)
+    
     # Relationships
     enrollments = db.relationship('Course', backref='student', lazy=True)
     profiles = db.relationship('UserProfile', backref='student', lazy=True)
     
     def get_id(self):
         return str(self.id)
+    
+    def get_quiz_uuid(self):
+        """Get or create quiz UUID for this user"""
+        if not self.quiz_user_uuid:
+            self.quiz_user_uuid = str(uuid.uuid4())
+            db.session.commit()
+        return self.quiz_user_uuid
     
     @property
     def is_authenticated(self):
@@ -164,23 +174,43 @@ class SkillsTownCourse(db.Model):
     def __repr__(self):
         return f'<SkillsTownCourse {self.name}>'
 
-# New model for quiz attempts
+# NEW: Model to track quiz instances created for courses
+class CourseQuiz(db.Model):
+    __tablename__ = 'skillstown_course_quizzes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_course_id = db.Column(db.Integer, db.ForeignKey('skillstown_user_courses.id'), nullable=False)
+    quiz_api_id = db.Column(db.String(100), nullable=False)  # ID from the quiz API
+    quiz_title = db.Column(db.String(255))
+    quiz_description = db.Column(db.Text)
+    questions_count = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    # Relationship to UserCourse
+    user_course = db.relationship('UserCourse', backref='quizzes')
+    
+    def __repr__(self):
+        return f'<CourseQuiz {self.quiz_api_id}>'
+
+# NEW: Model to track quiz attempts
 class CourseQuizAttempt(db.Model):
     __tablename__ = 'skillstown_quiz_attempts'
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('students.id'), nullable=False)
-    course_id = db.Column(db.Integer, db.ForeignKey('skillstown_user_courses.id'), nullable=False)
-    quiz_api_id = db.Column(db.String(100))  # ID from the quiz API
+    course_quiz_id = db.Column(db.Integer, db.ForeignKey('skillstown_course_quizzes.id'), nullable=False)
+    attempt_api_id = db.Column(db.String(100), nullable=False)  # ID from the quiz API
     score = db.Column(db.Integer)
-    weak_areas = db.Column(db.Text)  # JSON array
-    strong_areas = db.Column(db.Text)  # JSON array
-    recommendations_generated = db.Column(db.Text)  # JSON object
+    total_questions = db.Column(db.Integer)
+    correct_answers = db.Column(db.Integer)
+    feedback_strengths = db.Column(db.Text)
+    feedback_improvements = db.Column(db.Text)
+    user_answers = db.Column(db.Text)  # JSON array of user answers
     completed_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     
     # Relationships
     user = db.relationship('Student', backref='quiz_attempts')
-    course = db.relationship('UserCourse', backref='quiz_attempts')
+    course_quiz = db.relationship('CourseQuiz', backref='attempts')
     
     def __repr__(self):
-        return f'<CourseQuizAttempt {self.id}>'
+        return f'<CourseQuizAttempt {self.attempt_api_id}>'
