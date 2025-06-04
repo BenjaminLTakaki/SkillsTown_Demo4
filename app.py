@@ -1,6 +1,7 @@
 import os
 import json
 import re
+from dotenv import load_dotenv
 import sys
 import traceback
 import PyPDF2
@@ -15,6 +16,8 @@ from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from local_config import NARRETEX_API_URL, check_environment, LOCAL_DATABASE_URL, DEVELOPMENT_MODE
+
+load_dotenv()
 
 # Production detection
 is_production = os.environ.get('RENDER', False) or os.environ.get('FLASK_ENV') == 'production'
@@ -32,7 +35,7 @@ def get_url_for(*args, **kwargs):
     return url
 
 # Import models after db is defined
-from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, db
+from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, UserCourse, db
 
 def get_quiz_api_headers():
     """Get headers for quiz API requests"""
@@ -317,21 +320,8 @@ def create_app(config_name=None):
             pct = (comp/total*100) if total else 0
             return {'total':total,'enrolled':enrolled,'in_progress':in_p,'completed':comp,'completion_percentage':pct}
         except:
-            return {'total':0,'enrolled':0,'in_progress':0,'completed':0,'completion_percentage':0}
-
-    # Initialize auth
+            return {'total':0,'enrolled':0,'in_progress':0,'completed':0,'completion_percentage':0}    # Initialize auth
     init_auth(app, get_url_for, get_skillstown_stats)
-
-    # Models - Define within app context
-    class UserCourse(db.Model):
-        __tablename__ = 'skillstown_user_courses'
-        id = db.Column(db.Integer, primary_key=True)
-        user_id = db.Column(db.String(36), db.ForeignKey('students.id'), nullable=False)
-        category = db.Column(db.String(100), nullable=False)
-        course_name = db.Column(db.String(255), nullable=False)
-        status = db.Column(db.String(50), default='enrolled')
-        created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-        __table_args__ = (db.UniqueConstraint('user_id', 'course_name', name='skillstown_user_course_unique'),)
 
     with app.app_context(): 
         db.create_all()
@@ -544,7 +534,12 @@ def create_app(config_name=None):
         """Generate a new quiz for a course"""
         try:
             # Get the course from UserCourse table
-            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
+            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+            if not course:
+                return jsonify({
+                    'success': False,
+                    'error': 'Course not found or you do not have access to it'
+                }), 404
             
             # Get or create quiz UUID for the user
             quiz_user_uuid = current_user.get_quiz_uuid()
@@ -570,6 +565,8 @@ def create_app(config_name=None):
                 }
             }
             
+            print(f"[DEBUG] Sending quiz payload: {quiz_payload}")
+            
             # Call the quiz API to create quiz
             response = requests.post(
                 f"{QUIZ_API_BASE_URL}/quiz/create-ai-from-course",
@@ -578,7 +575,9 @@ def create_app(config_name=None):
                 timeout=30
             )
             
-            if response.status_code == 200:
+            print(f"[DEBUG] Quiz API response: {response.status_code} - {response.text}")
+            
+            if response.status_code == 201:  # Note: API returns 201, not 200
                 quiz_data = response.json()
                 
                 # Save quiz info to our database
@@ -604,14 +603,16 @@ def create_app(config_name=None):
                 print(f"Quiz API error: {response.status_code} - {response.text}")
                 return jsonify({
                     'success': False,
-                    'error': f'Failed to generate quiz: {response.status_code}'
+                    'error': f'Quiz API returned status {response.status_code}: {response.text}'
                 }), 500
-                
+                    
         except Exception as e:
             print(f"Error generating quiz: {e}")
+            import traceback
+            traceback.print_exc()
             return jsonify({
                 'success': False,
-                'error': str(e)
+                'error': f'Internal error: {str(e)}'
             }), 500
 
     @app.route('/quiz/<quiz_id>/details')
@@ -620,11 +621,16 @@ def create_app(config_name=None):
         """Get quiz details for taking the quiz"""
         try:
             # Verify user owns this quiz
-            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first_or_404()
+            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
+            if not course_quiz:
+                return jsonify({'error': 'Quiz not found'}), 404
+                
             user_course = UserCourse.query.filter_by(
                 id=course_quiz.user_course_id, 
                 user_id=current_user.id
-            ).first_or_404()
+            ).first()
+            if not user_course:
+                return jsonify({'error': 'Access denied'}), 403
             
             # Get quiz details from API
             response = requests.get(
@@ -636,9 +642,10 @@ def create_app(config_name=None):
             if response.status_code == 200:
                 return jsonify(response.json())
             else:
-                return jsonify({'error': 'Failed to fetch quiz details'}), 500
-                
+                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
+                    
         except Exception as e:
+            print(f"Error getting quiz details: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/quiz/<quiz_id>/start', methods=['POST'])
@@ -647,11 +654,16 @@ def create_app(config_name=None):
         """Start a new quiz attempt"""
         try:
             # Verify user owns this quiz
-            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first_or_404()
+            course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
+            if not course_quiz:
+                return jsonify({'error': 'Quiz not found'}), 404
+                
             user_course = UserCourse.query.filter_by(
                 id=course_quiz.user_course_id,
                 user_id=current_user.id
-            ).first_or_404()
+            ).first()
+            if not user_course:
+                return jsonify({'error': 'Access denied'}), 403
             
             # Start attempt via API
             response = requests.post(
@@ -674,9 +686,10 @@ def create_app(config_name=None):
                 
                 return jsonify(attempt_data)
             else:
-                return jsonify({'error': 'Failed to start quiz attempt'}), 500
-                
+                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
+                    
         except Exception as e:
+            print(f"Error starting quiz attempt: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/quiz/attempt/<attempt_id>/complete', methods=['POST'])
@@ -688,7 +701,9 @@ def create_app(config_name=None):
             quiz_attempt = CourseQuizAttempt.query.filter_by(
                 attempt_api_id=attempt_id,
                 user_id=current_user.id
-            ).first_or_404()
+            ).first()
+            if not quiz_attempt:
+                return jsonify({'error': 'Quiz attempt not found'}), 404
             
             # Get user answers from request
             user_answers = request.json
@@ -713,15 +728,16 @@ def create_app(config_name=None):
                     quiz_attempt.feedback_strengths = results.get('strengths', '')
                     quiz_attempt.feedback_improvements = results.get('improvements', '')
                     quiz_attempt.user_answers = json.dumps(user_answers)
-                    quiz_attempt.completed_at = datetime.utcnow()  # Fixed: Use datetime.utcnow()
+                    quiz_attempt.completed_at = datetime.utcnow()
                     
                     db.session.commit()
                 
                 return jsonify(result_data)
             else:
-                return jsonify({'error': 'Failed to complete quiz'}), 500
-                
+                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
+                    
         except Exception as e:
+            print(f"Error completing quiz attempt: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/course/<int:course_id>/quiz-attempts')
@@ -730,7 +746,9 @@ def create_app(config_name=None):
         """Get all quiz attempts for a course"""
         try:
             # Verify user owns this course
-            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first_or_404()
+            course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+            if not course:
+                return jsonify({'error': 'Course not found'}), 404
             
             # Get all quiz attempts for this course
             quiz_attempts = db.session.query(CourseQuizAttempt).join(
@@ -757,6 +775,7 @@ def create_app(config_name=None):
             return jsonify({'attempts': attempts_data})
             
         except Exception as e:
+            print(f"Error getting quiz attempts: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/course/<int:course_id>/quiz-recommendations')
@@ -780,31 +799,45 @@ def create_app(config_name=None):
             quiz_user_uuid = current_user.get_quiz_uuid()
             
             # Call quiz API to get detailed results and recommendations
-            response = requests.get(
-                f"{QUIZ_API_BASE_URL}/user/{quiz_user_uuid}/quiz-attempts-from-course",
-                headers=get_quiz_api_headers(),
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                attempts_data = response.json()
-                
-                # Find the matching attempt and generate recommendations
-                recommendations = generate_course_recommendations_from_quiz(
-                    latest_attempt, attempts_data.get('attempts', [])
+            try:
+                response = requests.get(
+                    f"{QUIZ_API_BASE_URL}/user/{quiz_user_uuid}/quiz-attempts-from-course",
+                    headers=get_quiz_api_headers(),
+                    timeout=30
                 )
                 
-                return jsonify({
-                    'latest_attempt': {
-                        'score': latest_attempt.score,
-                        'feedback_strengths': latest_attempt.feedback_strengths,
-                        'feedback_improvements': latest_attempt.feedback_improvements,
-                        'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
-                    },
-                    'recommendations': recommendations
-                })
-            else:
-                # Fallback to basic recommendations if API fails
+                if response.status_code == 200:
+                    attempts_data = response.json()
+                    
+                    # Find the matching attempt and generate recommendations
+                    recommendations = generate_course_recommendations_from_quiz(
+                        latest_attempt, attempts_data.get('attempts', [])
+                    )
+                    
+                    return jsonify({
+                        'latest_attempt': {
+                            'score': latest_attempt.score,
+                            'feedback_strengths': latest_attempt.feedback_strengths,
+                            'feedback_improvements': latest_attempt.feedback_improvements,
+                            'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
+                        },
+                        'recommendations': recommendations
+                    })
+                else:
+                    # Fallback to basic recommendations if API fails
+                    recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
+                    return jsonify({
+                        'latest_attempt': {
+                            'score': latest_attempt.score,
+                            'feedback_strengths': latest_attempt.feedback_strengths,
+                            'feedback_improvements': latest_attempt.feedback_improvements,
+                            'completed_at': latest_attempt.completed_at.isoformat() if latest_attempt.completed_at else None
+                        },
+                        'recommendations': recommendations
+                    })
+            except requests.RequestException as e:
+                print(f"Quiz API request failed: {e}")
+                # Fallback to basic recommendations
                 recommendations = generate_basic_recommendations_from_score(latest_attempt.score)
                 return jsonify({
                     'latest_attempt': {
@@ -815,8 +848,9 @@ def create_app(config_name=None):
                     },
                     'recommendations': recommendations
                 })
-                
+                    
         except Exception as e:
+            print(f"Error getting quiz recommendations: {e}")
             return jsonify({'error': str(e)}), 500
 
     # PODCAST ROUTES

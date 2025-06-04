@@ -1,200 +1,326 @@
-#!/usr/bin/env python3
-"""
-Ultimate fix for SkillsTown database issues
-This will handle both SQLite and PostgreSQL databases
-"""
-
 import os
 import sys
+from sqlalchemy import create_engine, text, inspect
 
-def load_env_file():
-    """Load environment variables from .env file"""
-    env_path = '.env'
-    if os.path.exists(env_path):
-        with open(env_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    os.environ[key] = value
-        print("✅ Loaded environment variables from .env file")
+def get_database_url():
+    """Get database URL from environment"""
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url and db_url.startswith('postgres://'):
+        db_url = db_url.replace('postgres://', 'postgresql://')
+    return db_url or 'sqlite:///skillstown.db'
 
-def ultimate_fix():
-    """Complete fix for all database issues"""
-    print("🔧 ULTIMATE FIX for SkillsTown Database Issues")
-    print("=" * 60)
+def create_missing_tables():
+    """Create all missing tables for quiz integration"""
     
-    # Load environment variables first
-    load_env_file()
+    print("🔧 Creating missing tables for quiz integration...")
     
-    # First, let's figure out what database you're using
-    database_url = os.environ.get('DATABASE_URL')
+    db_url = get_database_url()
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
     
-    if database_url:
-        print(f"📊 Detected PostgreSQL database: {database_url[:50]}...")
-        return fix_postgresql()
-    else:
-        print("📊 Using SQLite database")
-        return fix_sqlite()
-
-def fix_postgresql():
-    """Fix PostgreSQL database issues"""
-    print("\n🐘 Fixing PostgreSQL Database...")
+    print(f"Database: {db_url}")
+    print(f"Existing tables: {existing_tables}")
     
     try:
-        import psycopg2
-        from urllib.parse import urlparse
-        
-        # Parse database URL
-        database_url = os.environ.get('DATABASE_URL')
-        if database_url.startswith('postgres://'):
-            database_url = database_url.replace('postgres://', 'postgresql://')
-        
-        parsed = urlparse(database_url)
-        
-        # Connect directly to PostgreSQL
-        conn = psycopg2.connect(
-            host=parsed.hostname,
-            port=parsed.port,
-            user=parsed.username,
-            password=parsed.password,
-            database=parsed.path[1:]  # Remove leading /
-        )
-        
-        cursor = conn.cursor()
-        
-        print("📝 Adding quiz_user_uuid column to students table...")
-        try:
-            cursor.execute("""
-                ALTER TABLE students 
-                ADD COLUMN quiz_user_uuid VARCHAR(36)
-            """)
-            print("✅ Successfully added quiz_user_uuid column")
-        except Exception as e:
-            if "already exists" in str(e):
-                print("✅ quiz_user_uuid column already exists")
-            else:
-                print(f"❌ Error: {e}")
-        
-        print("📝 Creating quiz tables...")
-        
-        # Create quiz tables
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS skillstown_course_quizzes (
-                id SERIAL PRIMARY KEY,
-                user_course_id INTEGER NOT NULL,
-                quiz_api_id VARCHAR(100) NOT NULL,
-                quiz_title VARCHAR(255),
-                quiz_description TEXT,
-                questions_count INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS skillstown_quiz_attempts (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(36) NOT NULL,
-                course_quiz_id INTEGER NOT NULL,
-                attempt_api_id VARCHAR(100) NOT NULL,
-                score INTEGER,
-                total_questions INTEGER,
-                correct_answers INTEGER,
-                feedback_strengths TEXT,
-                feedback_improvements TEXT,
-                user_answers TEXT,
-                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        print("✅ PostgreSQL database fixed!")
-        return True
-        
+        with engine.connect() as conn:
+            trans = conn.begin()
+            
+            try:
+                # 1. Create skillstown_user_courses table if not exists
+                if 'skillstown_user_courses' not in existing_tables:
+                    print("📝 Creating skillstown_user_courses table...")
+                    
+                    if 'postgresql' in db_url:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_user_courses (
+                                id SERIAL PRIMARY KEY,
+                                user_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                                category VARCHAR(100) NOT NULL,
+                                course_name VARCHAR(255) NOT NULL,
+                                status VARCHAR(50) DEFAULT 'enrolled',
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                CONSTRAINT skillstown_user_course_unique UNIQUE (user_id, course_name)
+                            )
+                        """))
+                    else:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_user_courses (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_id VARCHAR(36) NOT NULL,
+                                category VARCHAR(100) NOT NULL,
+                                course_name VARCHAR(255) NOT NULL,
+                                status VARCHAR(50) DEFAULT 'enrolled',
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE,
+                                UNIQUE (user_id, course_name)
+                            )
+                        """))
+                    print("✅ skillstown_user_courses table created")
+                else:
+                    print("✅ skillstown_user_courses table already exists")
+                
+                # 2. Add quiz_user_uuid column to students if not exists
+                print("📝 Checking quiz_user_uuid column in students table...")
+                
+                columns = [col['name'] for col in inspector.get_columns('students')]
+                if 'quiz_user_uuid' not in columns:
+                    if 'postgresql' in db_url:
+                        conn.execute(text("ALTER TABLE students ADD COLUMN quiz_user_uuid VARCHAR(36) UNIQUE"))
+                    else:
+                        conn.execute(text("ALTER TABLE students ADD COLUMN quiz_user_uuid TEXT UNIQUE"))
+                    print("✅ quiz_user_uuid column added to students")
+                else:
+                    print("✅ quiz_user_uuid column already exists")
+                
+                # 3. Create skillstown_course_details table if not exists
+                if 'skillstown_course_details' not in existing_tables:
+                    print("📝 Creating skillstown_course_details table...")
+                    
+                    if 'postgresql' in db_url:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_course_details (
+                                id SERIAL PRIMARY KEY,
+                                user_course_id INTEGER NOT NULL REFERENCES skillstown_user_courses(id) ON DELETE CASCADE,
+                                description TEXT,
+                                progress_percentage INTEGER DEFAULT 0,
+                                completed_at TIMESTAMP,
+                                materials TEXT,
+                                quiz_results TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
+                    else:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_course_details (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_course_id INTEGER NOT NULL,
+                                description TEXT,
+                                progress_percentage INTEGER DEFAULT 0,
+                                completed_at TIMESTAMP,
+                                materials TEXT,
+                                quiz_results TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (user_course_id) REFERENCES skillstown_user_courses(id) ON DELETE CASCADE
+                            )
+                        """))
+                    print("✅ skillstown_course_details table created")
+                else:
+                    print("✅ skillstown_course_details table already exists")
+                
+                # 4. Create skillstown_course_quizzes table if not exists
+                if 'skillstown_course_quizzes' not in existing_tables:
+                    print("📝 Creating skillstown_course_quizzes table...")
+                    
+                    if 'postgresql' in db_url:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_course_quizzes (
+                                id SERIAL PRIMARY KEY,
+                                user_course_id INTEGER NOT NULL REFERENCES skillstown_user_courses(id) ON DELETE CASCADE,
+                                quiz_api_id VARCHAR(100) NOT NULL,
+                                quiz_title VARCHAR(255),
+                                quiz_description TEXT,
+                                questions_count INTEGER,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
+                    else:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_course_quizzes (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_course_id INTEGER NOT NULL,
+                                quiz_api_id VARCHAR(100) NOT NULL,
+                                quiz_title VARCHAR(255),
+                                quiz_description TEXT,
+                                questions_count INTEGER,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (user_course_id) REFERENCES skillstown_user_courses(id) ON DELETE CASCADE
+                            )
+                        """))
+                    print("✅ skillstown_course_quizzes table created")
+                else:
+                    print("✅ skillstown_course_quizzes table already exists")
+                
+                # 5. Create skillstown_quiz_attempts table if not exists
+                if 'skillstown_quiz_attempts' not in existing_tables:
+                    print("📝 Creating skillstown_quiz_attempts table...")
+                    
+                    if 'postgresql' in db_url:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_quiz_attempts (
+                                id SERIAL PRIMARY KEY,
+                                user_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                                course_quiz_id INTEGER NOT NULL REFERENCES skillstown_course_quizzes(id) ON DELETE CASCADE,
+                                attempt_api_id VARCHAR(100) NOT NULL,
+                                score INTEGER,
+                                total_questions INTEGER,
+                                correct_answers INTEGER,
+                                feedback_strengths TEXT,
+                                feedback_improvements TEXT,
+                                user_answers TEXT,
+                                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
+                    else:
+                        conn.execute(text("""
+                            CREATE TABLE skillstown_quiz_attempts (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_id VARCHAR(36) NOT NULL,
+                                course_quiz_id INTEGER NOT NULL,
+                                attempt_api_id VARCHAR(100) NOT NULL,
+                                score INTEGER,
+                                total_questions INTEGER,
+                                correct_answers INTEGER,
+                                feedback_strengths TEXT,
+                                feedback_improvements TEXT,
+                                user_answers TEXT,
+                                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE,
+                                FOREIGN KEY (course_quiz_id) REFERENCES skillstown_course_quizzes(id) ON DELETE CASCADE
+                            )
+                        """))
+                    print("✅ skillstown_quiz_attempts table created")
+                else:
+                    print("✅ skillstown_quiz_attempts table already exists")
+                
+                # Commit all changes
+                trans.commit()
+                print("\n🎉 All database tables created successfully!")
+                
+                return True
+                
+            except Exception as e:
+                trans.rollback()
+                print(f"❌ Error creating tables: {e}")
+                return False
+                
     except Exception as e:
-        print(f"❌ PostgreSQL fix failed: {e}")
+        print(f"❌ Database connection failed: {e}")
         return False
 
-def fix_sqlite():
-    """Fix SQLite database issues"""
-    print("\n💾 Fixing SQLite Database...")
+def test_tables():
+    """Test if all tables were created correctly"""
+    print("\n🔍 Testing table creation...")
+    
+    db_url = get_database_url()
+    engine = create_engine(db_url)
+    
+    required_tables = [
+        'students',
+        'skillstown_user_courses', 
+        'skillstown_course_details',
+        'skillstown_course_quizzes',
+        'skillstown_quiz_attempts'
+    ]
     
     try:
-        # First, let's use the Flask app to create all tables properly
-        print("📝 Creating all tables using Flask app...")
+        with engine.connect() as conn:
+            for table in required_tables:
+                try:
+                    result = conn.execute(text(f"SELECT COUNT(*) FROM {table} LIMIT 1"))
+                    print(f"✅ {table} - OK")
+                except Exception as e:
+                    print(f"❌ {table} - ERROR: {e}")
+                    return False
+            
+            # Test quiz_user_uuid column
+            try:
+                inspector = inspect(engine)
+                columns = [col['name'] for col in inspector.get_columns('students')]
+                if 'quiz_user_uuid' in columns:
+                    print("✅ students.quiz_user_uuid column - OK")
+                else:
+                    print("❌ students.quiz_user_uuid column - MISSING")
+                    return False
+            except Exception as e:
+                print(f"❌ Error checking columns: {e}")
+                return False
+            
+            print("✅ All tables and columns verified!")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Table verification failed: {e}")
+        return False
+
+def create_sample_data():
+    """Create sample course data for testing"""
+    print("\n📊 Creating sample course data...")
+    
+    try:
+        # Import app to get current user
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from app import create_app
         
         app = create_app()
         with app.app_context():
-            from models import db
+            from models import db, Student
             
-            # Get the actual database path from app config
-            db_uri = app.config['SQLALCHEMY_DATABASE_URI']
-            print(f"📝 Database URI: {db_uri}")
+            # Check if we have any users
+            users = Student.query.all()
+            if not users:
+                print("⚠️  No users found. Please register a user first.")
+                return True
             
-            # Create all tables
-            db.create_all()
-            print("✅ Created all tables with proper schema")
-        
-        print("✅ SQLite database fixed!")
-        return True
-        
+            user = users[0]  # Use first user for sample data
+            
+            # Import UserCourse model
+            from app import UserCourse
+            
+            # Check if user has courses
+            existing_courses = UserCourse.query.filter_by(user_id=user.id).count()
+            if existing_courses > 0:
+                print(f"✅ User already has {existing_courses} courses")
+                return True
+            
+            # Create sample courses
+            sample_courses = [
+                {"category": "Programming Languages", "course_name": "Python for Beginners"},
+                {"category": "Web Development", "course_name": "React Complete Course"},
+                {"category": "Data Science & Analytics", "course_name": "Data Science with Python"}
+            ]
+            
+            for course_data in sample_courses:
+                course = UserCourse(
+                    user_id=user.id,
+                    category=course_data["category"],
+                    course_name=course_data["course_name"],
+                    status='enrolled'
+                )
+                db.session.add(course)
+            
+            db.session.commit()
+            print(f"✅ Created {len(sample_courses)} sample courses for user {user.username}")
+            return True
+            
     except Exception as e:
-        print(f"❌ SQLite fix failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error creating sample data: {e}")
         return False
-
-def fix_app_issues():
-    """Fix the app.py datetime issue"""
-    print("\n🔧 Checking app.py for issues...")
-    
-    app_file = "app.py"
-    if not os.path.exists(app_file):
-        print("❌ app.py not found")
-        return False
-    
-    with open(app_file, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Check for datetime issues
-    if 'datetime.datetime.now()' in content:
-        print("📝 Fixing datetime issue...")
-        content = content.replace('datetime.datetime.now()', 'datetime.now()')
-        
-        with open(app_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print("✅ Fixed datetime issue")
-    
-    return True
 
 def main():
-    """Main fix function"""
-    print("🎯 SkillsTown Ultimate Database Fix")
-    print("This will resolve all database and app issues")
-    print("=" * 60)
+    """Main function"""
+    print("🎯 Quiz Integration Database Setup")
+    print("=" * 50)
     
-    # Load environment variables first
-    load_env_file()
+    # Create tables
+    if not create_missing_tables():
+        print("\n❌ Database setup failed!")
+        sys.exit(1)
     
-    # Step 1: Fix app.py issues
-    fix_app_issues()
+    # Test tables
+    if not test_tables():
+        print("\n❌ Table verification failed!")
+        sys.exit(1)
     
-    # Step 2: Fix database
-    if ultimate_fix():
-        print("\n🎉 Database fixed successfully!")
-        print("\n🚀 Your app should now work!")
-        print("Next steps:")
-        print("1. Start your app: python app.py")
-        print("2. Register/login to test")
-        print("3. Try the quiz integration")
-    else:
-        print("\n❌ Database fix failed")
-        print("Please check the error messages above and try again.")
+    # Create sample data
+    create_sample_data()
+    
+    print("\n🚀 Database setup complete!")
+    print("\nNext steps:")
+    print("1. Start your app: python app.py")
+    print("2. Login to your account")
+    print("3. Go to 'My Courses' and select a course")
+    print("4. Try generating a quiz!")
 
 if __name__ == '__main__':
     main()

@@ -156,6 +156,19 @@ class CourseDetail(db.Model):
     def __repr__(self):
         return f'<CourseDetail {self.user_course_id}>'
 
+class UserCourse(db.Model):
+    __tablename__ = 'skillstown_user_courses'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('students.id'), nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    course_name = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(50), default='enrolled')
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    __table_args__ = (db.UniqueConstraint('user_id', 'course_name', name='skillstown_user_course_unique'),)
+
+    def __repr__(self):
+        return f'<UserCourse {self.course_name}>'
+
 class SkillsTownCourse(db.Model):
     __tablename__ = 'skillstown_courses'
     

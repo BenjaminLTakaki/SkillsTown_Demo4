@@ -73,4 +73,4 @@ def get_quiz_headers():
     return {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {access_token}'
-        
+    }
