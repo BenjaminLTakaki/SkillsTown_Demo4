@@ -29,7 +29,9 @@ QUIZ_API_BASE_URL = os.environ.get('QUIZ_API_BASE_URL', 'http://localhost:8081')
 QUIZ_API_ACCESS_TOKEN = os.environ.get('QUIZ_API_ACCESS_TOKEN', 'kJ9mP2vL8xQ5nR3tY7wZ6cB4dF2gH8jK9lM3nP5qR7sT2uV6wX8yZ9aB3cD5eF7gH2iJ4kL6mN8oP9qR2sT4uV6wX8yZ1aB3cD5eF7gH9iJ2kL')
 
 def get_url_for(*args, **kwargs):
-    pass
+    """Wrapper around Flask's url_for function"""
+    from flask import url_for
+    return url_for(*args, **kwargs)
     
 
 # Import models after db is defined
@@ -93,8 +95,8 @@ def init_auth(app, get_url_for_func, get_stats_func):
     login_manager.login_view = 'login'
     
     @login_manager.user_loader
-    def load_user(user_id): # Added placeholder function
-        return Student.query.get(int(user_id)) # Assuming Student model and int ID
+    def load_user(user_id):
+        return Student.query.get(user_id)  # user_id is already a UUID string
     
     return db
 
@@ -396,6 +398,123 @@ def create_app(config_name=None):
     def logout():
         logout_user()
         return redirect(get_url_for('index'))
+
+    @app.route('/assessment')
+    @login_required
+    def assessment():
+        return render_template('assessment/assessment.html')
+
+    @app.route('/assessment/upload', methods=['GET', 'POST'])
+    @login_required  
+    def upload_cv():
+        if request.method == 'POST':
+            # Handle CV upload logic here
+            if 'cv_file' not in request.files:
+                flash('No file selected', 'error')
+                return redirect(request.url)
+            
+            file = request.files['cv_file']
+            if file.filename == '':
+                flash('No file selected', 'error')
+                return redirect(request.url)
+            
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                
+                # Create upload directory if it doesn't exist
+                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+                file.save(filepath)
+                
+                # Extract text and analyze
+                cv_text = extract_text_from_pdf(filepath)
+                if cv_text:
+                    analysis = analyze_skills_with_gemini(cv_text)
+                    return render_template('assessment/results.html', analysis=analysis)
+                else:
+                    flash('Could not extract text from PDF', 'error')
+            else:
+                flash('Invalid file type. Please upload a PDF file.', 'error')
+        
+        return render_template('assessment/upload.html')
+
+    @app.route('/search')
+    def search():
+        query = request.args.get('query', '')
+        results = []
+        
+        if query:
+            catalog = load_course_catalog()
+            results = search_courses(query, catalog)
+        
+        return render_template('courses/search.html', query=query, results=results)
+
+    @app.route('/my-courses')
+    @login_required
+    def my_courses():
+        # Get user's enrolled courses
+        user_courses = UserCourse.query.filter_by(user_id=current_user.id).all()
+        return render_template('courses/my_courses.html', courses=user_courses)
+
+    @app.route('/profile')
+    @login_required
+    def profile():
+        # Get user stats
+        stats = get_skillstown_stats(current_user.id)
+        return render_template('profile.html', stats=stats)
+
+    @app.route('/about')
+    def about():
+        return render_template('about.html')
+
+    @app.route('/course/<int:course_id>')
+    @login_required
+    def course_detail(course_id):
+        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+        if not course:
+            flash('Course not found', 'error')
+            return redirect(get_url_for('my_courses'))
+        
+        # Get course details
+        course_details = CourseDetail.query.filter_by(user_course_id=course_id).first()
+        
+        return render_template('courses/course_detail.html', course=course, details=course_details)
+
+    @app.route('/course/<int:course_id>/update-status', methods=['POST'])
+    @login_required
+    def update_course_status(course_id):
+        course = UserCourse.query.filter_by(id=course_id, user_id=current_user.id).first()
+        if not course:
+            flash('Course not found', 'error')
+            return redirect(get_url_for('my_courses'))
+        
+        new_status = request.form.get('status')
+        if new_status in ['enrolled', 'in_progress', 'completed']:
+            course.status = new_status
+            db.session.commit()
+            flash(f'Course status updated to {new_status}', 'success')
+        
+        return redirect(get_url_for('course_detail', course_id=course_id))
+
+    @app.route('/reset-skillstown-tables', methods=['POST'])
+    @login_required
+    def reset_skillstown_tables():
+        # Only allow this in development mode
+        if not DEVELOPMENT_MODE:
+            flash('This action is not allowed in production', 'error')
+            return redirect(get_url_for('profile'))
+        
+        try:
+            # Clear user's course data
+            UserCourse.query.filter_by(user_id=current_user.id).delete()
+            CourseDetail.query.join(UserCourse).filter(UserCourse.user_id == current_user.id).delete()
+            db.session.commit()
+            flash('SkillsTown tables reset successfully', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error resetting tables: {str(e)}', 'error')
+        
+        return redirect(get_url_for('profile'))
 
     # QUIZ ROUTES - NEW INTEGRATION
     @app.route('/course/<int:course_id>/generate-quiz', methods=['POST'])
