@@ -558,6 +558,7 @@ def create_app(config_name=None):
             # Prepare the request payload for quiz API
             quiz_payload = {
                 "user_id": quiz_user_uuid,
+                "course_id": course_id,
                 "course": {
                     "name": course.course_name,
                     "description": description,
@@ -642,7 +643,7 @@ def create_app(config_name=None):
             quiz_user_uuid = current_user.get_quiz_uuid()
             
             # Only use the "from-course" endpoint with Authorization header
-            endpoints_to_try = [f"/quiz/{quiz_id}/{quiz_user_uuid}/from-course"]  # Use GET /quiz/:quizId/:userId/from-course
+            endpoints_to_try = [f"/quiz/{quiz_id}/from-course"]  # Use GET /quiz/:quizId/from-course
             
             response = None
             for endpoint in endpoints_to_try:
@@ -774,9 +775,12 @@ def create_app(config_name=None):
                 print(f"[DEBUG] Quiz attempt not found: {attempt_id}")
                 return jsonify({'error': 'Quiz attempt not found'}), 404
             
-            # Get user answers from request
-            user_answers = request.json
-            print(f"[DEBUG] User answers: {user_answers}")
+            # Get raw input and build payload with answers array
+            raw_input = request.json
+            # Ensure answers is an array under 'answers' key
+            answers_list = raw_input if isinstance(raw_input, list) else raw_input.get('answers', [])
+            payload = {'answers': answers_list}
+            print(f"[DEBUG] Payload for complete-from-course: {payload}")
             
             # Get the user's quiz UUID
             quiz_user_uuid = current_user.get_quiz_uuid()
@@ -789,7 +793,7 @@ def create_app(config_name=None):
                     print(f"[DEBUG] Trying complete endpoint: {QUIZ_API_BASE_URL}{endpoint}")
                     response = requests.post(
                         f"{QUIZ_API_BASE_URL}{endpoint}",
-                        json=user_answers,
+                        json=payload,
                         headers=get_quiz_api_headers(),
                         timeout=30
                     )
@@ -806,24 +810,43 @@ def create_app(config_name=None):
                     continue
             
             if response and response.status_code == 200:
-                result_data = response.json()
-                print(f"[DEBUG] Result data: {result_data}")
-                
-                # Update our attempt record with results
+                # Parse initial acknowledgment
+                initial_data = response.json()
+                print(f"[DEBUG] Initial complete response: {initial_data}")
+                # Attempt to fetch full result details
+                try:
+                    details_resp = requests.get(
+                        f"{QUIZ_API_BASE_URL}/quiz/attempt/{attempt_id}/{quiz_user_uuid}/results-from-course",
+                        headers=get_quiz_api_headers(),
+                        timeout=30
+                    )
+                    if details_resp.status_code == 200:
+                        result_data = details_resp.json()
+                        print(f"[DEBUG] Fetched detailed result data: {result_data}")
+                    else:
+                        result_data = initial_data
+                        print(f"[DEBUG] Detailed fetch failed, status {details_resp.status_code}")
+                except Exception as e:
+                    result_data = initial_data
+                    print(f"[DEBUG] Exception fetching detailed results: {e}")
+
+                # Update our attempt record with results if provided
                 if 'results' in result_data:
-                    results = result_data['results']
-                    quiz_attempt.score = results.get('score', 0)
-                    quiz_attempt.total_questions = results.get('totalQuestions', 0)
-                    quiz_attempt.correct_answers = results.get('correct', 0)
-                    quiz_attempt.feedback_strengths = results.get('strengths', '')                    
-                    quiz_attempt.feedback_improvements = results.get('improvements', '')
-                    quiz_attempt.user_answers = json.dumps(user_answers)
+                    r = result_data['results']
+                    quiz_attempt.score = r.get('score', 0)
+                    quiz_attempt.total_questions = r.get('totalQuestions', 0)
+                    quiz_attempt.correct_answers = r.get('correct', 0)
+                    quiz_attempt.feedback_strengths = r.get('strengths', '')
+                    quiz_attempt.feedback_improvements = r.get('improvements', '')
+                    quiz_attempt.user_answers = json.dumps(answers_list)
                     quiz_attempt.completed_at = datetime.utcnow()
-                    
                     db.session.commit()
-                    print(f"[DEBUG] Quiz attempt updated in database")
-                
-                return jsonify(result_data)
+                    print(f"[DEBUG] Quiz attempt updated in database with full results")
+                # Always return wrapped under 'results' for client display
+                if 'results' in result_data:
+                    return jsonify(result_data)
+                else:
+                    return jsonify({ 'results': result_data })
             else:
                 error_msg = f'Quiz API error: {response.status_code if response else "No response"}'
                 if response:
@@ -1153,9 +1176,6 @@ def create_app(config_name=None):
                 
             except Exception as e:
                 print(f"Error processing CV: {e}")
-                flash('Error processing CV. Please try again.', 'error')
-                return redirect(get_url_for('assessment'))
-        
         flash('Invalid file format. Please upload a PDF file.', 'error')
         return redirect(get_url_for('assessment'))
 
@@ -1280,7 +1300,10 @@ def create_app(config_name=None):
         return render_template('courses/course_detail.html', 
                              course=course, 
                              course_details=course_details,
-                             materials=materials)
+                             materials=materials,
+                             quiz_proxy_url=os.environ.get('QUIZ_PROXY_URL', 'http://localhost:8081'),
+                            quiz_api_access_token=os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+                            )
 
     @app.route('/course/<int:course_id>/update-status', methods=['POST'])
     @login_required
@@ -1592,6 +1615,40 @@ def create_app(config_name=None):
                 'error': str(e),
                 'traceback': traceback.format_exc()
             }), 500
+
+    @app.route('/quizzes/<user_uuid>/from-course')
+    @login_required
+    def list_quizzes_from_course(user_uuid):
+        """Fetch all quizzes for a user from external quiz API"""
+        try:
+            response = requests.get(
+                f"{QUIZ_API_BASE_URL}/quizzes/{user_uuid}/from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                return jsonify({'error': f"Quiz API returned status {response.status_code}"}), response.status_code
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/user/<user_uuid>/quiz-attempts-from-course')
+    @login_required
+    def list_user_quiz_attempts_from_course(user_uuid):
+        """Fetch all quiz attempts for a user from external quiz API"""
+        try:
+            response = requests.get(
+                f"{QUIZ_API_BASE_URL}/user/{user_uuid}/quiz-attempts-from-course",
+                headers=get_quiz_api_headers(),
+                timeout=30
+            )
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                return jsonify({'error': f"Quiz API returned status {response.status_code}"}), response.status_code
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
     return app
 

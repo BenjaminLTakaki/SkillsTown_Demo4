@@ -361,6 +361,8 @@ let currentQuiz = null;
 let currentAttempt = null;
 let userAnswers = [];
 
+const userUuid = "{{ current_user.get_quiz_uuid() }}";  // proxy endpoint parameter
+
 // Quiz generation functionality
 async function generateQuiz(courseId) {
     const btn = document.getElementById('generateQuizBtn');
@@ -640,19 +642,21 @@ function displayQuizResults(result) {
 // Load quiz history and recommendations
 async function loadQuizHistory() {
     try {
-        const courseId = '{{ course.id }}';
-        
-        // Get quiz attempts
-        const attemptsResponse = await fetch(`/course/${courseId}/quiz-attempts`);
+        // Get quiz attempts via proxy
+        const attemptsResponse = await fetch(`${quiz_proxy_url}/user/${userUuid}/quiz-attempts-from-course`, {
+            headers: { 'Content-Type': 'application/json' }
+        });
         const attemptsData = await attemptsResponse.json();
-        
-        // Get recommendations
-        const recommendationsResponse = await fetch(`/course/${courseId}/quiz-recommendations`);
-        const recommendationsData = await recommendationsResponse.json();
-        
-        if (attemptsResponse.ok) {
-            displayQuizHistory(attemptsData.attempts, recommendationsData);
-        }
+
+         // Get recommendations
+         const recommendationsResponse = await fetch(`${quiz_proxy_url}/course/${courseId}/quiz-recommendations`, {
+             headers: { 'Authorization': `Bearer ${quiz_api_access_token}` }
+         });
+          const recommendationsData = await recommendationsResponse.json();
+         
+         if (attemptsResponse.ok) {
+             displayQuizHistory(attemptsData.attempts, recommendationsData);
+         }
         
     } catch (error) {
         console.error('Error loading quiz history:', error);
