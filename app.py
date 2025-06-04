@@ -38,11 +38,24 @@ def get_url_for(*args, **kwargs):
 from models import Company, Student, Category, ContentPage, Course, CourseContentPage, UserProfile, SkillsTownCourse, CourseDetail, CourseQuiz, CourseQuizAttempt, UserCourse, db
 
 def get_quiz_api_headers():
-    """Get headers for quiz API requests"""
-    return {
+    """Get headers for quiz API requests with proper authentication"""
+    # Use the access token from local_config.py or environment
+    access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+    
+    # Try multiple authentication methods - the Quiz API might require specific format
+    headers = {
         'Content-Type': 'application/json',
-        'Authorization': f'Bearer {QUIZ_API_ACCESS_TOKEN}'
+        'Authorization': f'Bearer {access_token}',
+        'X-API-Key': access_token,  # Some APIs require this header
+        'X-Access-Token': access_token,  # Alternative header
+        'Accept': 'application/json'
     }
+    
+    # Debug: Print headers (remove in production)
+    print(f"[DEBUG] Quiz API headers: {headers}")
+    print(f"[DEBUG] Using token: {access_token[:20]}..." if access_token else "[DEBUG] No token found!")
+    
+    return headers
 
 def generate_podcast_for_course(course_name, course_description):
     """
@@ -608,8 +621,6 @@ def create_app(config_name=None):
                     
         except Exception as e:
             print(f"Error generating quiz: {e}")
-            import traceback
-            traceback.print_exc()
             return jsonify({
                 'success': False,
                 'error': f'Internal error: {str(e)}'
@@ -620,76 +631,145 @@ def create_app(config_name=None):
     def get_quiz_details(quiz_id):
         """Get quiz details for taking the quiz"""
         try:
+            print(f"[DEBUG] Getting quiz details for quiz_id: {quiz_id}")
+            
             # Verify user owns this quiz
             course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
             if not course_quiz:
+                print(f"[DEBUG] Quiz not found in database: {quiz_id}")
                 return jsonify({'error': 'Quiz not found'}), 404
-                
+                    
             user_course = UserCourse.query.filter_by(
                 id=course_quiz.user_course_id, 
                 user_id=current_user.id
             ).first()
             if not user_course:
+                print(f"[DEBUG] Access denied for user {current_user.id} to quiz {quiz_id}")
                 return jsonify({'error': 'Access denied'}), 403
             
-            # Get quiz details from API
-            response = requests.get(
-                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course",
-                headers=get_quiz_api_headers(),
-                timeout=30
-            )
+            print(f"[DEBUG] Calling quiz API: {QUIZ_API_BASE_URL}/quiz/{quiz_id}/from-course")
             
-            if response.status_code == 200:
-                return jsonify(response.json())
-            else:
-                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
+            # Get quiz details from API - try different endpoints
+            endpoints_to_try = [
+                f"/quiz/{quiz_id}/from-course",
+                f"/quiz/{quiz_id}/details",
+                f"/quiz/{quiz_id}"
+            ]
+            
+            response = None
+            for endpoint in endpoints_to_try:
+                try:
+                    print(f"[DEBUG] Trying endpoint: {QUIZ_API_BASE_URL}{endpoint}")
+                    response = requests.get(
+                        f"{QUIZ_API_BASE_URL}{endpoint}",
+                        headers=get_quiz_api_headers(),
+                        timeout=30
+                    )
+                    print(f"[DEBUG] Response status: {response.status_code}")
                     
+                    if response.status_code == 200:
+                        print(f"[DEBUG] Success with endpoint: {endpoint}")
+                        break
+                    else:
+                        print(f"[DEBUG] Failed with endpoint {endpoint}: {response.status_code} - {response.text}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] Exception with endpoint {endpoint}: {e}")
+                    continue
+            
+            if response and response.status_code == 200:
+                quiz_data = response.json()
+                print(f"[DEBUG] Quiz data received: {list(quiz_data.keys()) if isinstance(quiz_data, dict) else type(quiz_data)}")
+                return jsonify(quiz_data)
+            else:
+                error_msg = f'Quiz API error: {response.status_code if response else "No response"}' 
+                if response:
+                    error_msg += f" - {response.text}"
+                print(f"[DEBUG] Final error: {error_msg}")
+                return jsonify({'error': error_msg}), 500
+                        
         except Exception as e:
-            print(f"Error getting quiz details: {e}")
-            return jsonify({'error': str(e)}), 500
-
-    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
+            print(f"[DEBUG] Exception in get_quiz_details: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500    @app.route('/quiz/<quiz_id>/start', methods=['POST'])
     @login_required  
     def start_quiz_attempt(quiz_id):
         """Start a new quiz attempt"""
         try:
+            print(f"[DEBUG] Starting quiz attempt for quiz_id: {quiz_id}")
+            
             # Verify user owns this quiz
             course_quiz = CourseQuiz.query.filter_by(quiz_api_id=quiz_id).first()
             if not course_quiz:
+                print(f"[DEBUG] Quiz not found: {quiz_id}")
                 return jsonify({'error': 'Quiz not found'}), 404
-                
+                    
             user_course = UserCourse.query.filter_by(
                 id=course_quiz.user_course_id,
                 user_id=current_user.id
             ).first()
             if not user_course:
+                print(f"[DEBUG] Access denied for quiz: {quiz_id}")
                 return jsonify({'error': 'Access denied'}), 403
             
-            # Start attempt via API
-            response = requests.post(
-                f"{QUIZ_API_BASE_URL}/quiz/{quiz_id}/attempt-from-course",
-                headers=get_quiz_api_headers(),
-                timeout=30
-            )
+            # Get the user's quiz UUID
+            quiz_user_uuid = current_user.get_quiz_uuid()
             
-            if response.status_code == 200:
+            # Try different endpoints for starting attempt, including user-specific ones
+            endpoints_to_try = [
+                f"/user/{quiz_user_uuid}/quiz/{quiz_id}/attempt",  # User-specific endpoint
+                f"/quiz/{quiz_id}/attempt-from-course",
+                f"/quiz/{quiz_id}/start",
+                f"/quiz/{quiz_id}/attempt"
+            ]
+            
+            response = None
+            for endpoint in endpoints_to_try:
+                try:
+                    print(f"[DEBUG] Trying start endpoint: {QUIZ_API_BASE_URL}{endpoint}")
+                    response = requests.post(
+                        f"{QUIZ_API_BASE_URL}{endpoint}",
+                        headers=get_quiz_api_headers(),
+                        timeout=30
+                    )
+                    print(f"[DEBUG] Start response status: {response.status_code}")
+                    
+                    if response.status_code in [200, 201]:
+                        print(f"[DEBUG] Success starting with endpoint: {endpoint}")
+                        break
+                    else:
+                        print(f"[DEBUG] Failed starting with endpoint {endpoint}: {response.status_code} - {response.text}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] Exception starting with endpoint {endpoint}: {e}")
+                    continue
+            
+            if response and response.status_code in [200, 201]:
                 attempt_data = response.json()
+                print(f"[DEBUG] Attempt data: {attempt_data}")
                 
                 # Save attempt to our database
                 quiz_attempt = CourseQuizAttempt(
                     user_id=current_user.id,
                     course_quiz_id=course_quiz.id,
-                    attempt_api_id=attempt_data['attemptId']
+                    attempt_api_id=attempt_data.get('attemptId', attempt_data.get('id', 'unknown'))
                 )
                 db.session.add(quiz_attempt)
                 db.session.commit()
                 
                 return jsonify(attempt_data)
             else:
-                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
-                    
+                error_msg = f'Quiz API error: {response.status_code if response else "No response"}'
+                if response:
+                    error_msg += f" - {response.text}"
+                print(f"[DEBUG] Start attempt error: {error_msg}")
+                return jsonify({'error': error_msg}), 500
+                        
         except Exception as e:
-            print(f"Error starting quiz attempt: {e}")
+            print(f"[DEBUG] Exception in start_quiz_attempt: {e}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 500
 
     @app.route('/quiz/attempt/<attempt_id>/complete', methods=['POST'])
@@ -697,27 +777,53 @@ def create_app(config_name=None):
     def complete_quiz_attempt(attempt_id):
         """Complete a quiz attempt with user answers"""
         try:
+            print(f"[DEBUG] Completing quiz attempt: {attempt_id}")
+            
             # Get the attempt from our database
             quiz_attempt = CourseQuizAttempt.query.filter_by(
                 attempt_api_id=attempt_id,
                 user_id=current_user.id
             ).first()
             if not quiz_attempt:
+                print(f"[DEBUG] Quiz attempt not found: {attempt_id}")
                 return jsonify({'error': 'Quiz attempt not found'}), 404
             
             # Get user answers from request
             user_answers = request.json
+            print(f"[DEBUG] User answers: {user_answers}")
             
-            # Submit answers to quiz API
-            response = requests.post(
-                f"{QUIZ_API_BASE_URL}/quiz/attempt/{attempt_id}/complete-from-course",
-                json=user_answers,
-                headers=get_quiz_api_headers(),
-                timeout=30
-            )
+            # Try different endpoints for completing attempt
+            endpoints_to_try = [
+                f"/quiz/attempt/{attempt_id}/complete-from-course",
+                f"/quiz/attempt/{attempt_id}/complete",
+                f"/quiz/attempt/{attempt_id}/submit"
+            ]
             
-            if response.status_code == 200:
+            response = None
+            for endpoint in endpoints_to_try:
+                try:
+                    print(f"[DEBUG] Trying complete endpoint: {QUIZ_API_BASE_URL}{endpoint}")
+                    response = requests.post(
+                        f"{QUIZ_API_BASE_URL}{endpoint}",
+                        json=user_answers,
+                        headers=get_quiz_api_headers(),
+                        timeout=30
+                    )
+                    print(f"[DEBUG] Complete response status: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        print(f"[DEBUG] Success completing with endpoint: {endpoint}")
+                        break
+                    else:
+                        print(f"[DEBUG] Failed completing with endpoint {endpoint}: {response.status_code} - {response.text}")
+                        
+                except Exception as e:
+                    print(f"[DEBUG] Exception completing with endpoint {endpoint}: {e}")
+                    continue
+            
+            if response and response.status_code == 200:
                 result_data = response.json()
+                print(f"[DEBUG] Result data: {result_data}")
                 
                 # Update our attempt record with results
                 if 'results' in result_data:
@@ -725,20 +831,101 @@ def create_app(config_name=None):
                     quiz_attempt.score = results.get('score', 0)
                     quiz_attempt.total_questions = results.get('totalQuestions', 0)
                     quiz_attempt.correct_answers = results.get('correct', 0)
-                    quiz_attempt.feedback_strengths = results.get('strengths', '')
+                    quiz_attempt.feedback_strengths = results.get('strengths', '')                    
                     quiz_attempt.feedback_improvements = results.get('improvements', '')
                     quiz_attempt.user_answers = json.dumps(user_answers)
                     quiz_attempt.completed_at = datetime.utcnow()
                     
                     db.session.commit()
+                    print(f"[DEBUG] Quiz attempt updated in database")
                 
                 return jsonify(result_data)
             else:
-                return jsonify({'error': f'Quiz API error: {response.status_code}'}), 500
-                    
+                error_msg = f'Quiz API error: {response.status_code if response else "No response"}'
+                if response:
+                    error_msg += f" - {response.text}"
+                print(f"[DEBUG] Complete attempt error: {error_msg}")
+                return jsonify({'error': error_msg}), 500
+                        
         except Exception as e:
-            print(f"Error completing quiz attempt: {e}")
+            print(f"[DEBUG] Exception in complete_quiz_attempt: {e}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 500
+
+    # Add this test route to check your quiz API connectivity
+    @app.route('/test-quiz-api')
+    @login_required
+    def test_quiz_api():
+        """Test route to check quiz API connectivity"""
+        try:
+            # Test basic connectivity
+            response = requests.get(f"{QUIZ_API_BASE_URL}/health", timeout=10)
+            
+            api_status = {
+                'quiz_api_base_url': QUIZ_API_BASE_URL,
+                'health_check_status': response.status_code if response else 'No response',
+                'health_check_response': response.text if response else 'No response'
+            }
+            
+            return jsonify(api_status)
+            
+        except Exception as e:
+            return jsonify({
+                'error': str(e),
+                'quiz_api_base_url': QUIZ_API_BASE_URL
+            }), 500
+
+    @app.route('/test-quiz-auth')
+    @login_required
+    def test_quiz_auth():
+        """Test route to verify quiz API authentication with different methods"""
+        try:
+            access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+            
+            # Try different authentication methods
+            auth_methods = [
+                {'name': 'Bearer Token', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Bearer {access_token}'}},
+                {'name': 'Token Header', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Token {access_token}'}},
+                {'name': 'X-API-Key', 'headers': {'Content-Type': 'application/json', 'X-API-Key': access_token}},
+                {'name': 'X-Access-Token', 'headers': {'Content-Type': 'application/json', 'X-Access-Token': access_token}},
+                {'name': 'No Auth', 'headers': {'Content-Type': 'application/json'}},
+            ]
+            
+            # Test endpoints
+            test_endpoints = ['/health', '/status', '/']
+            
+            results = {}
+            
+            for method in auth_methods:
+                results[method['name']] = {}
+                for endpoint in test_endpoints:
+                    try:
+                        response = requests.get(
+                            f"{QUIZ_API_BASE_URL}{endpoint}",
+                            headers=method['headers'],
+                            timeout=10
+                        )
+                        results[method['name']][endpoint] = {
+                            'status': response.status_code,
+                            'response': response.text[:200] if response.text else 'No response body'
+                        }
+                    except Exception as e:
+                        results[method['name']][endpoint] = {
+                            'error': str(e)
+                        }
+            
+            return jsonify({
+                'quiz_api_base_url': QUIZ_API_BASE_URL,
+                'token_preview': f"{access_token[:20]}..." if access_token else "NO TOKEN",
+                'authentication_test_results': results
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'error': str(e),
+                'quiz_api_base_url': QUIZ_API_BASE_URL
+            }), 500
 
     @app.route('/course/<int:course_id>/quiz-attempts')
     @login_required
@@ -1189,6 +1376,246 @@ def create_app(config_name=None):
     def internal_error(error):
         db.session.rollback()
         return render_template('errors/500.html'), 500
+
+    @app.route('/test-quiz-api-simple')
+    def test_quiz_api_simple():
+        """Simple test route without login requirement to diagnose API authentication"""
+        try:
+            access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+            base_url = QUIZ_API_BASE_URL
+            
+            # Test different authentication methods with quiz-specific endpoints
+            test_results = []
+            
+            # Test 1: Health check with no auth
+            try:
+                response = requests.get(f"{base_url}/health", timeout=10)
+                test_results.append({
+                    'test': 'Health check (no auth)',
+                    'status': response.status_code,
+                    'response': response.text[:100] if response.text else 'No response',
+                    'success': response.status_code == 200
+                })
+            except Exception as e:
+                test_results.append({
+                    'test': 'Health check (no auth)',
+                    'error': str(e),
+                    'success': False
+                })
+            
+            # Test 2: Different auth methods on various endpoints
+            auth_methods = [
+                {'name': 'Bearer', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Bearer {access_token}'}},
+                {'name': 'Token', 'headers': {'Content-Type': 'application/json', 'Authorization': f'Token {access_token}'}},
+                {'name': 'X-API-Key', 'headers': {'Content-Type': 'application/json', 'X-API-Key': access_token}},
+                {'name': 'X-Access-Token', 'headers': {'Content-Type': 'application/json', 'X-Access-Token': access_token}},
+                {'name': 'Authorization-Token', 'headers': {'Content-Type': 'application/json', 'Authorization-Token': access_token}},
+            ]
+            
+            # Test endpoints that we know exist
+            test_endpoints = [
+                '/health',
+                '/status', 
+                '/',
+                '/api/health',
+                '/quiz',
+                '/quiz/health'
+            ]
+            
+            for method in auth_methods:
+                for endpoint in test_endpoints:
+                    try: 
+                        response = requests.get(
+                            f"{base_url}{endpoint}",
+                            headers=method['headers'],
+                            timeout=10
+                        )
+                        test_results.append({
+                            'test': f"{method['name']} on {endpoint}",
+                            'status': response.status_code,
+                            'response': response.text[:100] if response.text else 'No response',
+                            'success': response.status_code in [200, 404]  # 404 might be OK for non-existent endpoints
+                        })
+                        
+                        # If we get a successful response, try a quiz-specific action
+                        if response.status_code == 200:
+                            # Test with a mock quiz attempt endpoint
+                            try:
+                                quiz_response = requests.post(
+                                    f"{base_url}/quiz/test/attempt",
+                                    headers=method['headers'],
+                                    json={"test": True},
+                                    timeout=10
+                                )
+                                test_results.append({
+                                    'test': f"{method['name']} on quiz attempt endpoint",
+                                    'status': quiz_response.status_code,
+                                    'response': quiz_response.text[:200] if quiz_response.text else 'No response',
+                                    'success': quiz_response.status_code != 401
+                                })
+                            except Exception as e:
+                                test_results.append({
+                                    'test': f"{method['name']} on quiz attempt endpoint",
+                                    'error': str(e),
+                                    'success': False
+                                })
+                            break  # Found working auth method, no need to test other endpoints
+                            
+                    except Exception as e:
+                        test_results.append({
+                            'test': f"{method['name']} on {endpoint}",
+                            'error': str(e),
+                            'success': False
+                        })
+            
+            # Find the best working auth method
+            working_methods = [r for r in test_results if r.get('success') and r.get('status') == 200]
+            
+            return jsonify({
+                'quiz_api_base_url': base_url,
+                'token_preview': f"{access_token[:20]}..." if access_token else "NO TOKEN",
+                'total_tests': len(test_results),
+                'successful_tests': len([r for r in test_results if r.get('success')]),
+                'working_auth_methods': working_methods,
+                'all_test_results': test_results,
+                'recommendations': [
+                    "If health check works but quiz endpoints return 401, the issue is authentication format",
+                    "If all endpoints return connection errors, check if Quiz API service is running on port 8081",
+                    "If some auth methods work for basic endpoints but not quiz endpoints, the API may use different auth for different routes"
+                ]
+            })
+                    
+        except Exception as e:            return jsonify({
+                'error': str(e),
+                'quiz_api_base_url': QUIZ_API_BASE_URL,
+                'traceback': traceback.format_exc()
+            }), 500
+
+    @app.route('/debug-quiz-flow')
+    def debug_quiz_flow():
+        """Debug route to test the complete quiz flow and identify authentication issues"""
+        try:
+            access_token = os.environ.get('QUIZ_API_ACCESS_TOKEN', QUIZ_API_ACCESS_TOKEN)
+            base_url = QUIZ_API_BASE_URL
+            
+            # Step 1: Create a test quiz (we know this works)
+            print("[DEBUG] Step 1: Creating test quiz...")
+            create_payload = {
+                "user_id": "debug-user-uuid-12345",
+                "course": {
+                    "name": "Debug Authentication Test",
+                    "description": "Testing authentication flow",
+                    "level": "Beginner"
+                }
+            }
+            
+            create_headers = get_quiz_api_headers()
+            
+            try:
+                create_response = requests.post(
+                    f"{base_url}/quiz/create-ai-from-course",
+                    json=create_payload,
+                    headers=create_headers,
+                    timeout=30
+                )
+                
+                print(f"[DEBUG] Create response: {create_response.status_code}")
+                print(f"[DEBUG] Create response body: {create_response.text}")
+                
+                if create_response.status_code == 201:
+                    quiz_data = create_response.json()
+                    quiz_id = quiz_data['quizId']
+                    print(f"[DEBUG] ✅ Quiz created successfully: {quiz_id}")
+                    
+                    # Step 2: Try to start an attempt (this is where it fails)
+                    print(f"[DEBUG] Step 2: Starting quiz attempt for quiz {quiz_id}...")
+                    
+                    # Try different attempt endpoints
+                    attempt_endpoints = [
+                        f"/quiz/{quiz_id}/attempt",
+                        f"/quiz/{quiz_id}/start",
+                        f"/quiz/{quiz_id}/attempt-from-course",
+                        f"/user/debug-user-uuid-12345/quiz/{quiz_id}/attempt"
+                    ]
+                    
+                    attempt_results = []
+                    
+                    for endpoint in attempt_endpoints:
+                        try:
+                            print(f"[DEBUG] Trying attempt endpoint: {endpoint}")
+                            attempt_response = requests.post(
+                                f"{base_url}{endpoint}",
+                                headers=create_headers,  # Use same headers that worked for creation
+                                timeout=30
+                            )
+                            
+                            result = {
+                                'endpoint': endpoint,
+                                'status_code': attempt_response.status_code,
+                                'response': attempt_response.text,
+                                'success': attempt_response.status_code in [200, 201]
+                            }
+                            attempt_results.append(result)
+                            
+                            print(f"[DEBUG] Attempt response {endpoint}: {attempt_response.status_code}")
+                            print(f"[DEBUG] Attempt response body: {attempt_response.text}")
+                            
+                            if attempt_response.status_code in [200, 201]:
+                                print(f"[DEBUG] ✅ SUCCESS with endpoint: {endpoint}")
+                                break
+                                
+                        except Exception as e:
+                            result = {
+                                'endpoint': endpoint,
+                                'error': str(e),
+                                'success': False
+                            }
+                            attempt_results.append(result)
+                            print(f"[DEBUG] Exception with {endpoint}: {e}")
+                    
+                    return jsonify({
+                        'step_1_create_quiz': {
+                            'status': 'SUCCESS',
+                            'status_code': create_response.status_code,
+                            'quiz_id': quiz_id,
+                            'response': quiz_data
+                        },
+                        'step_2_start_attempt': {
+                            'status': 'TESTED_MULTIPLE_ENDPOINTS',
+                            'results': attempt_results,
+                            'working_endpoints': [r for r in attempt_results if r.get('success')]
+                        },
+                        'headers_used': create_headers,
+                        'conclusions': {
+                            'quiz_creation_works': True,
+                            'attempt_endpoints_work': len([r for r in attempt_results if r.get('success')]) > 0,
+                            'auth_issue_diagnosis': 'Check attempt_results for specific error messages'
+                        }
+                    })
+                else:
+                    return jsonify({
+                        'step_1_create_quiz': {
+                            'status': 'FAILED',
+                            'status_code': create_response.status_code,
+                            'response': create_response.text
+                        },
+                        'error': 'Quiz creation failed, cannot test attempt flow'
+                    })
+                    
+            except Exception as e:
+                return jsonify({
+                    'step_1_create_quiz': {
+                        'status': 'EXCEPTION',
+                        'error': str(e)
+                    },
+                    'error': f'Exception during quiz creation: {str(e)}'
+                })
+                
+        except Exception as e:
+            return jsonify({
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }), 500
 
     return app
 
